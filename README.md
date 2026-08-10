@@ -50,4 +50,5 @@ On cust1, as root:
 Watch the Incidents channel in Mattermost. Reply in the incident thread with
 `stop`, `read-only`, `read-write`, or free-text guidance.
 
-See `docs/runbook.md` for the full walkthrough.
+See `docs/runbook.md` for the full walkthrough and `docs/deploy-notes.md` for
+version pins and setup gotchas before changing anything.
