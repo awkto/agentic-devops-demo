@@ -107,7 +107,7 @@ services:
       - ./icinga/mysql-init:/docker-entrypoint-initdb.d:ro
 
   icinga2:
-    image: icinga/icinga2:2.14
+    image: icinga/icinga2:2.16
     restart: unless-stopped
     hostname: icinga2
     environment:
@@ -116,11 +116,12 @@ services:
       - icinga2-data:/data
 
   icingadb:
-    image: icinga/icingadb:1.2
+    image: icinga/icingadb:1.5
     restart: unless-stopped
     depends_on: [icinga-mysql, icingadb-redis]
     environment:
       ICINGADB_REDIS_HOST: icingadb-redis
+      ICINGADB_REDIS_PORT: 6379
       ICINGADB_DATABASE_HOST: icinga-mysql
       ICINGADB_DATABASE_PORT: 3306
       ICINGADB_DATABASE_DATABASE: icingadb
@@ -128,7 +129,7 @@ services:
       ICINGADB_DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
 
   icingaweb2:
-    image: icinga/icingaweb2:2.12
+    image: icinga/icingaweb2:2.14
     restart: unless-stopped
     depends_on: [icinga-mysql, icingadb]
     environment:
@@ -151,13 +152,14 @@ services:
       icingaweb.resources.icingadb.dbname: icingadb
       icingaweb.resources.icingadb.username: icingadb
       icingaweb.resources.icingadb.password: ${POSTGRES_PASSWORD}
-      icingaweb.icingadb.config.icingadb.resource: icingadb
-      icingaweb.icingadb.redis.redis1.host: icingadb-redis
-      icingaweb.icingadb.commandtransports.icinga2.transport: api
-      icingaweb.icingadb.commandtransports.icinga2.host: icinga2
-      icingaweb.icingadb.commandtransports.icinga2.port: 5665
-      icingaweb.icingadb.commandtransports.icinga2.username: icingaweb
-      icingaweb.icingadb.commandtransports.icinga2.password: ${ICINGA_API_PASSWORD}
+      icingaweb.modules.icingadb.config.icingadb.resource: icingadb
+      icingaweb.modules.icingadb.redis.redis1.host: icingadb-redis
+      icingaweb.modules.icingadb.redis.redis1.port: 6379
+      icingaweb.modules.icingadb.commandtransports.icinga2.transport: api
+      icingaweb.modules.icingadb.commandtransports.icinga2.host: icinga2
+      icingaweb.modules.icingadb.commandtransports.icinga2.port: 5665
+      icingaweb.modules.icingadb.commandtransports.icinga2.username: icingaweb
+      icingaweb.modules.icingadb.commandtransports.icinga2.password: ${ICINGA_API_PASSWORD}
       icingaweb.passwords.icingaweb2.icingaadmin: ${ICINGA_ADMIN_PASSWORD}
 
   # --- OpenBao (sandbox instance holding customer credentials) ---

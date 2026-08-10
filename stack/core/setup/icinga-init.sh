@@ -26,7 +26,7 @@ rm -f /tmp/icinga-demo.conf
 
 dc exec -u root -T icinga2 bash -c '
   rm -f /data/etc/icinga2/conf.d/hosts.conf
-  printf "object IcingaDB \"icingadb\" {\n  host = \"icingadb-redis\"\n}\n" \
+  printf "object IcingaDB \"icingadb\" {\n  host = \"icingadb-redis\"\n  port = 6379\n}\n" \
     > /data/etc/icinga2/features-available/icingadb.conf
   icinga2 feature enable icingadb api >/dev/null || true
   chown -R icinga:icinga /data/ssh /data/scripts /data/etc/icinga2/conf.d/demo.conf
