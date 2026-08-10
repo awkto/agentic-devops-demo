@@ -1,0 +1,11 @@
+Incident response process for customer systems.
+
+# An alert (Icinga) or ticket (Zammad) comes in.
+# Make sure a Zammad ticket exists for the incident. Icinga alerts get a new ticket.
+# Announce in the Incidents channel that the alert is being worked on.
+# Check the [[Maintenance calendar]] and open tickets: if the affected host has planned work in the current window, do not remediate. Note the overlap in the channel and ticket, and confirm with the owner.
+# Fetch access credentials from OpenBao (<code>secret/customers/&lt;name&gt;</code>).
+# Investigate on the host: service status, logs, disk, recent changes. Prefer read-only commands first.
+# If the cause is clear and the fix is routine (restart a service, free disk space, restore a config), apply it and verify recovery.
+# If the fix is unclear, risky, or data-destructive: stop, summarize findings, and hand over to the on-call engineer.
+# Update the ticket with root cause, actions taken and verification. Post a summary in the channel.

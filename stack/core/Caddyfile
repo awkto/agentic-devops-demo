@@ -1,0 +1,23 @@
+chat.{$DOMAIN} {
+	reverse_proxy mattermost:8065
+}
+
+sso.{$DOMAIN} {
+	reverse_proxy keycloak:8080
+}
+
+tickets.{$DOMAIN} {
+	reverse_proxy zammad-nginx:8080
+}
+
+icinga.{$DOMAIN} {
+	reverse_proxy icingaweb2:8080
+}
+
+wiki.{$DOMAIN} {
+	reverse_proxy mediawiki:80
+}
+
+bao.{$DOMAIN} {
+	reverse_proxy openbao:8200
+}

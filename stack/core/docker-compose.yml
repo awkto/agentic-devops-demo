@@ -1,0 +1,171 @@
+name: demo-core
+
+networks:
+  default:
+  demo:
+    external: true
+
+volumes:
+  caddy-data:
+  mm-data:
+  mm-db:
+  kc-data:
+  wiki-html:
+  wiki-db:
+  icinga2-data:
+  icinga-db:
+  bao-data:
+
+services:
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+    networks: [default, demo]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+
+  # --- Mattermost ---
+  mm-postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mmuser
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: mattermost
+    volumes:
+      - mm-db:/var/lib/postgresql/data
+
+  mattermost:
+    image: mattermost/mattermost-team-edition:10.5
+    restart: unless-stopped
+    depends_on: [mm-postgres]
+    environment:
+      MM_SQLSETTINGS_DRIVERNAME: postgres
+      MM_SQLSETTINGS_DATASOURCE: postgres://mmuser:${POSTGRES_PASSWORD}@mm-postgres:5432/mattermost?sslmode=disable
+      MM_SERVICESETTINGS_SITEURL: https://chat.${DOMAIN}
+      MM_SERVICESETTINGS_ENABLELOCALMODE: "true"
+      MM_SERVICESETTINGS_ENABLEBOTACCOUNTCREATION: "true"
+      MM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS: "true"
+      MM_PLUGINSETTINGS_ENABLEUPLOADS: "true"
+      MM_TEAMSETTINGS_ENABLEOPENSERVER: "false"
+    volumes:
+      - mm-data:/mattermost/data
+
+  # --- Keycloak ---
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.1
+    restart: unless-stopped
+    command: start-dev --import-realm
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KC_HOSTNAME: https://sso.${DOMAIN}
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+    volumes:
+      - kc-data:/opt/keycloak/data
+      - ./keycloak:/opt/keycloak/data/import:ro
+
+  # --- MediaWiki ---
+  wiki-db:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${POSTGRES_PASSWORD}
+      MARIADB_DATABASE: wiki
+      MARIADB_USER: wiki
+      MARIADB_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - wiki-db:/var/lib/mysql
+
+  mediawiki:
+    image: mediawiki:1.43
+    restart: unless-stopped
+    depends_on: [wiki-db]
+    volumes:
+      - wiki-html:/var/www/html
+
+  # --- Icinga ---
+  icingadb-redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+  icinga-mysql:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - icinga-db:/var/lib/mysql
+      - ./icinga/mysql-init:/docker-entrypoint-initdb.d:ro
+
+  icinga2:
+    image: icinga/icinga2:2.14
+    restart: unless-stopped
+    hostname: icinga2
+    environment:
+      ICINGA_MASTER: "1"
+    volumes:
+      - icinga2-data:/data
+
+  icingadb:
+    image: icinga/icingadb:1.2
+    restart: unless-stopped
+    depends_on: [icinga-mysql, icingadb-redis]
+    environment:
+      ICINGADB_REDIS_HOST: icingadb-redis
+      ICINGADB_DATABASE_HOST: icinga-mysql
+      ICINGADB_DATABASE_PORT: 3306
+      ICINGADB_DATABASE_DATABASE: icingadb
+      ICINGADB_DATABASE_USER: icingadb
+      ICINGADB_DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+
+  icingaweb2:
+    image: icinga/icingaweb2:2.12
+    restart: unless-stopped
+    depends_on: [icinga-mysql, icingadb]
+    environment:
+      icingaweb.enabledModules: icingadb
+      icingaweb.config.global.config_backend: db
+      icingaweb.config.global.config_resource: icingaweb_db
+      icingaweb.authentication.icingaweb2.backend: db
+      icingaweb.authentication.icingaweb2.resource: icingaweb_db
+      icingaweb.roles.Administrators.users: icingaadmin
+      icingaweb.roles.Administrators.permissions: "*"
+      icingaweb.resources.icingaweb_db.type: db
+      icingaweb.resources.icingaweb_db.db: mysql
+      icingaweb.resources.icingaweb_db.host: icinga-mysql
+      icingaweb.resources.icingaweb_db.dbname: icingaweb
+      icingaweb.resources.icingaweb_db.username: icingaweb
+      icingaweb.resources.icingaweb_db.password: ${POSTGRES_PASSWORD}
+      icingaweb.resources.icingadb.type: db
+      icingaweb.resources.icingadb.db: mysql
+      icingaweb.resources.icingadb.host: icinga-mysql
+      icingaweb.resources.icingadb.dbname: icingadb
+      icingaweb.resources.icingadb.username: icingadb
+      icingaweb.resources.icingadb.password: ${POSTGRES_PASSWORD}
+      icingaweb.icingadb.config.icingadb.resource: icingadb
+      icingaweb.icingadb.redis.redis1.host: icingadb-redis
+      icingaweb.icingadb.commandtransports.icinga2.transport: api
+      icingaweb.icingadb.commandtransports.icinga2.host: icinga2
+      icingaweb.icingadb.commandtransports.icinga2.port: 5665
+      icingaweb.icingadb.commandtransports.icinga2.username: icingaweb
+      icingaweb.icingadb.commandtransports.icinga2.password: ${ICINGA_API_PASSWORD}
+      icingaweb.passwords.icingaweb2.icingaadmin: ${ICINGA_ADMIN_PASSWORD}
+
+  # --- OpenBao (sandbox instance holding customer credentials) ---
+  openbao:
+    image: openbao/openbao:2
+    restart: unless-stopped
+    command: server -dev -dev-root-token-id=${BAO_DEMO_TOKEN} -dev-listen-address=0.0.0.0:8200
+    cap_add:
+      - IPC_LOCK
+    volumes:
+      - bao-data:/openbao/data

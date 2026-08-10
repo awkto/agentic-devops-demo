@@ -1,0 +1,13 @@
+[Unit]
+Description=Agent harness
+After=network-online.target
+
+[Service]
+EnvironmentFile=/opt/agent/.env
+WorkingDirectory=/opt/agent
+ExecStart=/usr/bin/node src/server.js
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

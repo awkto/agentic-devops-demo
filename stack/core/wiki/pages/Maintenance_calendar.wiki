@@ -1,0 +1,9 @@
+Planned maintenance windows. Anything listed here for the current time window means alerts on that host may be expected and should not be auto-remediated.
+
+{| class="wikitable"
+! Date !! Host !! Window (UTC) !! Owner !! Work
+|-
+| 2026-07-14 || cust1.__DOMAIN__ || 02:00-04:00 || alice || Kernel patching and reboot (completed)
+|}
+
+Add a row before starting planned work. Remove or mark rows done afterwards.

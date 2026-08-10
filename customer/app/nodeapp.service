@@ -1,0 +1,13 @@
+[Unit]
+Description=Customer node application
+After=network.target postgresql.service
+
+[Service]
+ExecStart=/usr/bin/node /opt/app/server.js
+Restart=always
+RestartSec=5
+User=root
+WorkingDirectory=/opt/app
+
+[Install]
+WantedBy=multi-user.target

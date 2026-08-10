@@ -1,0 +1,11 @@
+Customer systems we maintain. Each customer page documents hosts, services and access.
+
+{| class="wikitable"
+! Customer !! Host !! Purpose !! Details
+|-
+| Cust1 || cust1.__DOMAIN__ || Web platform (site, app, database) || [[Cust1]]
+|}
+
+Access credentials for all customer systems are stored in OpenBao under <code>secret/customers/</code>. Never copy credentials into the wiki or tickets.
+
+Planned work must be recorded in the [[Maintenance calendar]] before it starts.

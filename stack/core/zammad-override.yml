@@ -1,0 +1,11 @@
+# Joins the Zammad nginx frontend to the shared "demo" network so Caddy can
+# reverse-proxy tickets.<domain> to it.
+networks:
+  demo:
+    external: true
+
+services:
+  zammad-nginx:
+    networks:
+      default:
+      demo:

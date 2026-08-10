@@ -1,0 +1,11 @@
+{
+  "port": 3000,
+  "db": {
+    "host": "127.0.0.1",
+    "port": 5432,
+    "user": "app",
+    "password": "app",
+    "database": "app",
+    "connectionTimeoutMillis": 3000
+  }
+}

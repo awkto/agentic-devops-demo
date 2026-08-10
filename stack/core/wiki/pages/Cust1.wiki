@@ -1,0 +1,27 @@
+Customer 1 runs a small web platform on a single host.
+
+== Host ==
+* FQDN: cust1.__DOMAIN__
+* OS: Ubuntu 24.04
+* Access: ssh as root, key in OpenBao at <code>secret/customers/cust1</code>
+
+== Services ==
+{| class="wikitable"
+! Service !! How it runs !! Port !! Notes
+|-
+| Website || nginx, static files in /var/www/html || 80 || Public marketing site
+|-
+| Application || systemd unit <code>nodeapp</code>, code in /opt/app || 3000 || Node.js, reads config from /opt/app/config.json, needs PostgreSQL
+|-
+| Database || PostgreSQL (distro package), data on / || 5432 (localhost) || Used by the application only
+|}
+
+== Operational notes ==
+* Restart services with <code>systemctl restart nginx|nodeapp|postgresql</code>.
+* Application logs: <code>journalctl -u nodeapp</code>. It exits nonzero if /opt/app/config.json is missing or the database is unreachable.
+* PostgreSQL config lives in /etc/postgresql/16/main/. The application expects the default port 5432.
+* Disk pressure history: log growth under /var/log has filled the disk before. Safe to delete old files in /var/log/app-debug/.
+* Monitoring: Icinga checks website, nodeapp, disk and postgres from the ops core host.
+
+== Escalation ==
+Before changing anything, check the [[Maintenance calendar]] and open tickets for planned work. If the fix is not obvious or requires data-destructive steps, stop and hand over to the on-call engineer in the Incidents channel.
