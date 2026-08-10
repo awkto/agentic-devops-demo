@@ -32,6 +32,9 @@ File.write('/tmp/zammad_token', t.token)
 w = Webhook.find_by(name: 'agent')
 w ||= Webhook.create!(name: 'agent', endpoint: 'https://agent.${DOMAIN}/webhook/zammad',
   ssl_verify: true, active: true)
+w.basic_auth_username = 'zammad'
+w.basic_auth_password = '${WEBHOOK_SECRET}'
+w.save!
 unless Trigger.find_by(name: 'agent-new-ticket')
   Trigger.create!(name: 'agent-new-ticket',
     condition: { 'ticket.action' => { 'operator' => 'is', 'value' => 'create' } },

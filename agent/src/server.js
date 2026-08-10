@@ -12,10 +12,14 @@ const incidents = new Map();
 const byRoot = new Map();
 
 function auth(req, res, next) {
-  if (req.get('X-Webhook-Token') !== config.webhookSecret) {
-    return res.status(401).json({ error: 'bad token' });
+  if (req.get('X-Webhook-Token') === config.webhookSecret) return next();
+  // Zammad webhooks authenticate with basic auth instead of a custom header
+  const basic = (req.get('Authorization') || '').match(/^Basic (.+)$/);
+  if (basic) {
+    const pass = Buffer.from(basic[1], 'base64').toString().split(':').slice(1).join(':');
+    if (pass === config.webhookSecret) return next();
   }
-  next();
+  return res.status(401).json({ error: 'bad token' });
 }
 
 function launch(key, trigger) {
@@ -42,6 +46,7 @@ function launch(key, trigger) {
 app.post('/webhook/icinga', auth, (req, res) => {
   const b = req.body || {};
   const key = `icinga:${b.host}:${b.service}`;
+  console.log(`icinga webhook: ${key} type=${b.type} state=${b.state}`);
   if (b.type === 'RECOVERY') {
     const inc = incidents.get(key);
     if (inc && !inc.done) {
@@ -60,6 +65,7 @@ app.post('/webhook/icinga', auth, (req, res) => {
 app.post('/webhook/zammad', auth, (req, res) => {
   const t = req.body?.ticket;
   if (!t || !t.id) return res.status(400).json({ error: 'no ticket in payload' });
+  console.log(`zammad webhook: ticket ${t.number} "${t.title}"`);
   // ignore tickets the agent itself files for icinga alerts
   if ((t.title || '').startsWith('[icinga]')) {
     return res.json({ ok: true, action: 'ignored-own-ticket' });
