@@ -106,13 +106,19 @@ export class Incident {
 
     let ticketInfo;
     if (t.source === 'icinga') {
-      const ticket = await zammad.createTicket(
-        `[icinga] ${t.host}/${t.service} ${t.state}`,
-        `Automated ticket for Icinga alert.\n\nHost: ${t.host}\nService: ${t.service}\nState: ${t.state}\nOutput: ${t.output}`
-      );
-      this.state.ticketId = ticket.id;
-      ticketInfo = `Zammad ticket #${ticket.number} (id ${ticket.id}) was created for this alert.`;
-      await this.postUpdate(`Created Zammad ticket #${ticket.number} for this alert.`);
+      try {
+        const ticket = await zammad.createTicket(
+          `[icinga] ${t.host}/${t.service} ${t.state}`,
+          `Automated ticket for Icinga alert.\n\nHost: ${t.host}\nService: ${t.service}\nState: ${t.state}\nOutput: ${t.output}`
+        );
+        this.state.ticketId = ticket.id;
+        ticketInfo = `Zammad ticket #${ticket.number} (id ${ticket.id}) was created for this alert.`;
+        await this.postUpdate(`Created Zammad ticket #${ticket.number} for this alert.`);
+      } catch (err) {
+        console.error('zammad ticket create failed', err);
+        ticketInfo = 'Ticket creation in Zammad failed; continue without a ticket and mention this in the summary.';
+        await this.postUpdate('Could not create a Zammad ticket (API error). Continuing without one.');
+      }
     } else {
       ticketInfo = `This incident came from Zammad ticket id ${this.state.ticketId}.`;
     }

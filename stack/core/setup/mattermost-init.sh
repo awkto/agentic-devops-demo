@@ -25,6 +25,7 @@ mm channel users add ops:incidents sysadmin alice bob agent || true
 
 mkdir -p /opt/demo/state
 if [ ! -s /opt/demo/state/mm_token ]; then
-  mm token generate agent agent-harness --json | jq -r .token > /opt/demo/state/mm_token
+  mm token generate agent agent-harness --json \
+    | jq -r 'if type == "array" then .[0].token else .token end' > /opt/demo/state/mm_token
 fi
 echo "mattermost configured, agent token in /opt/demo/state/mm_token"

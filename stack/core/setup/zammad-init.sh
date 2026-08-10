@@ -5,7 +5,7 @@ cd "$(dirname "$0")/.."
 set -a; source ./.env; set +a
 
 zrails() {
-  (cd /opt/zammad && docker compose exec -T zammad-railsserver rails r "$1")
+  (cd /opt/zammad && docker compose exec -T zammad-railsserver bundle exec rails r "$1")
 }
 
 echo "waiting for zammad railsserver"
@@ -23,6 +23,8 @@ if u.nil?
     firstname: 'Demo', lastname: 'Admin', password: '${ZAMMAD_ADMIN_PASSWORD}',
     verified: true, active: true, roles: Role.where(name: ['Admin', 'Agent']))
 end
+u.group_names_access_map = { 'Users' => 'full' }
+u.save!
 t = Token.find_by(action: 'api', user_id: u.id)
 t ||= Token.create!(action: 'api', persistent: true, user_id: u.id,
   preferences: { permission: ['admin', 'ticket.agent'] })

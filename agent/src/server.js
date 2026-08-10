@@ -23,9 +23,11 @@ function launch(key, trigger) {
   if (existing && !existing.done) return existing;
   const inc = new Incident(key, trigger);
   incidents.set(key, inc);
-  inc.run().then(() => {
-    if (inc.rootId) byRoot.delete(inc.rootId);
-  });
+  inc.run()
+    .catch((err) => console.error(`incident ${key} run failed`, err))
+    .finally(() => {
+      if (inc.rootId) byRoot.delete(inc.rootId);
+    });
   // rootId becomes available once the first post lands
   const track = setInterval(() => {
     if (inc.rootId) {

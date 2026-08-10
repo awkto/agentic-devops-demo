@@ -25,6 +25,7 @@ dc cp /opt/demo/state/agent_ed25519 icinga2:/data/ssh/agent_ed25519
 rm -f /tmp/icinga-demo.conf
 
 dc exec -u root -T icinga2 bash -c '
+  rm -f /data/etc/icinga2/conf.d/hosts.conf
   printf "object IcingaDB \"icingadb\" {\n  host = \"icingadb-redis\"\n}\n" \
     > /data/etc/icinga2/features-available/icingadb.conf
   icinga2 feature enable icingadb api >/dev/null || true
