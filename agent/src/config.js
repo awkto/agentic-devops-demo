@@ -28,4 +28,9 @@ export const config = {
     url: required('BAO_URL'),
     token: required('BAO_TOKEN'),
   },
+  icinga: {
+    url: process.env.ICINGA_API_URL || '',
+    user: process.env.ICINGA_API_USER || 'agent',
+    password: process.env.ICINGA_API_PASSWORD || '',
+  },
 };

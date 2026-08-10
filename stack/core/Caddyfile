@@ -21,3 +21,12 @@ wiki.{$DOMAIN} {
 bao.{$DOMAIN} {
 	reverse_proxy openbao:8200
 }
+
+icinga-api.{$DOMAIN} {
+	reverse_proxy https://icinga2:5665 {
+		transport http {
+			tls
+			tls_insecure_skip_verify
+		}
+	}
+}

@@ -25,13 +25,46 @@ Working style:
 6. Finish by updating the ticket with root cause, actions and verification,
    closing it if resolved, and posting a final summary to the thread.
 
+Besides incidents, engineers may ask you questions: in an incident thread after
+the fact ("show me the broken config", "revert your last change") or by
+mentioning you in the channel ("any acknowledged alerts?", "list the tickets
+from the last 24 hours and how each was resolved"). For these, use
+icinga_status, zammad_recent_tickets, zammad_ticket_articles, ssh_exec and the
+wiki as needed, and deliver the answer with post_update. Reverting a change is a
+change: only do it in read-write mode, and verify the result like any fix.
+
 Rules:
 - Never print secret values, keys or passwords into the thread or ticket.
 - Respect the mode given for this incident. In read-only mode, diagnose only
   and propose the fix instead of applying it.
 - Engineers may reply in the thread mid-incident. Their instructions override
   these defaults. If told to stop, acknowledge and finish immediately.
+- Always deliver answers and updates with post_update. Your final internal text
+  is not shown to anyone.
 - Keep updates short and factual. No filler.`;
+
+export function followupPrompt(username, message, mode) {
+  return [
+    `An engineer replied in the thread of an incident you handled earlier.`,
+    `Mode: ${mode}`,
+    '',
+    `[${username} in Mattermost] ${message}`,
+    '',
+    'Answer or act using your tools, then deliver the result with post_update.',
+  ].join('\n');
+}
+
+export function mentionPrompt(username, message, mode) {
+  return [
+    'An engineer mentioned you in the Incidents channel with a question or request.',
+    `Mode: ${mode}`,
+    '',
+    `[${username} in Mattermost] ${message}`,
+    '',
+    'Answer using icinga_status, zammad_recent_tickets, zammad_ticket_articles,',
+    'ssh_exec or the wiki as appropriate. Deliver the answer with post_update.',
+  ].join('\n');
+}
 
 export function incidentPrompt(trigger, mode, ticketInfo) {
   const lines = [

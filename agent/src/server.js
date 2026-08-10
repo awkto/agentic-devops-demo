@@ -1,4 +1,5 @@
 import express from 'express';
+import fs from 'fs';
 import { config } from './config.js';
 import * as mm from './mattermost.js';
 import { Incident } from './incident.js';
@@ -8,8 +9,25 @@ app.use(express.json({ limit: '1mb' }));
 
 // key -> Incident
 const incidents = new Map();
-// mattermost root post id -> Incident
+// mattermost root post id -> active Incident
 const byRoot = new Map();
+
+// rootId -> { sessionId, ticketId, mode } for finished sessions, so thread
+// replies can resume them with full context. Survives harness restarts.
+const STATE_FILE = process.env.STATE_FILE || '/opt/agent/state.json';
+let finished = {};
+try { finished = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); } catch {}
+function rememberSession(inc) {
+  if (!inc.rootId || !inc.sessionId) return;
+  finished[inc.rootId] = {
+    sessionId: inc.sessionId,
+    ticketId: inc.state.ticketId,
+    mode: inc.state.mode,
+  };
+  try { fs.writeFileSync(STATE_FILE, JSON.stringify(finished)); } catch (err) {
+    console.error('state save failed', err.message);
+  }
+}
 
 function auth(req, res, next) {
   if (req.get('X-Webhook-Token') === config.webhookSecret) return next();
@@ -22,14 +40,15 @@ function auth(req, res, next) {
   return res.status(401).json({ error: 'bad token' });
 }
 
-function launch(key, trigger) {
+function launch(key, trigger, opts) {
   const existing = incidents.get(key);
   if (existing && !existing.done) return existing;
-  const inc = new Incident(key, trigger);
+  const inc = new Incident(key, trigger, opts);
   incidents.set(key, inc);
   inc.run()
     .catch((err) => console.error(`incident ${key} run failed`, err))
     .finally(() => {
+      rememberSession(inc);
       if (inc.rootId) byRoot.delete(inc.rootId);
     });
   // rootId becomes available once the first post lands
@@ -95,14 +114,56 @@ app.get('/', (_req, res) => {
 
 app.get('/healthz', (_req, res) => res.json({ ok: true }));
 
+const MENTION = /@agent\b/i;
+
 const main = async () => {
   await mm.init();
   mm.listen(async (post) => {
-    if (!post.root_id) return;
-    const inc = byRoot.get(post.root_id);
-    if (!inc || inc.done) return;
     const username = await mm.userName(post.user_id);
-    await inc.handleThreadReply(post.message, username);
+
+    if (post.root_id) {
+      // reply in a thread: active incident gets it injected live
+      const inc = byRoot.get(post.root_id);
+      if (inc && !inc.done) {
+        await inc.handleThreadReply(post.message, username);
+        return;
+      }
+      // finished incident: resume the original session with full context
+      const past = finished[post.root_id];
+      if (past) {
+        console.log(`followup in thread ${post.root_id} from ${username}`);
+        launch(`followup:${post.root_id}`, {
+          source: 'followup',
+          username,
+          message: post.message,
+        }, {
+          rootId: post.root_id,
+          resume: past.sessionId,
+          mode: past.mode,
+          ticketId: past.ticketId,
+        });
+        return;
+      }
+      // unknown thread: only react if explicitly mentioned
+      if (MENTION.test(post.message)) {
+        launch(`mention:${post.id}`, {
+          source: 'mention',
+          username,
+          message: post.message,
+        }, { rootId: post.root_id });
+      }
+      return;
+    }
+
+    // top-level channel post mentioning the agent: ad-hoc Q&A in its thread
+    if (MENTION.test(post.message)) {
+      console.log(`mention from ${username}: ${post.message.slice(0, 80)}`);
+      launch(`mention:${post.id}`, {
+        source: 'mention',
+        username,
+        message: post.message,
+      }, { rootId: post.id });
+    }
   });
   app.listen(config.port, () => {
     console.log(`agent harness listening on :${config.port}`);

@@ -20,7 +20,9 @@ if ! command -v caddy >/dev/null; then
 fi
 
 mkdir -p /opt/agent
-rsync -a --delete --exclude .env --exclude node_modules /opt/demo/agent/ /opt/agent/
+rsync -a --delete --exclude .env --exclude node_modules \
+  --exclude state.json --exclude .claude --exclude work \
+  /opt/demo/agent/ /opt/agent/
 (cd /opt/agent && npm install --omit=dev --no-audit --no-fund >/dev/null)
 
 source /opt/agent/.env

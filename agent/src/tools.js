@@ -7,6 +7,7 @@ import os from 'os';
 import path from 'path';
 import { config } from './config.js';
 import * as zammad from './zammad.js';
+import * as icinga from './icinga.js';
 
 const execFileP = promisify(execFile);
 
@@ -132,6 +133,27 @@ export function buildOpsServer(incident) {
     ),
 
     tool(
+      'icinga_status',
+      'Current state of all monitored services: state, acknowledged, in_downtime, since, last output.',
+      {},
+      async () => text(JSON.stringify(await icinga.serviceStatus()))
+    ),
+
+    tool(
+      'zammad_recent_tickets',
+      'List tickets updated within the last N hours (default 24), any state.',
+      { hours: z.number().optional() },
+      async ({ hours }) => text(JSON.stringify(await zammad.listRecent(hours ?? 24)))
+    ),
+
+    tool(
+      'zammad_ticket_articles',
+      'Full note history of a ticket by id: who wrote what and when. Use to summarize how an incident was resolved.',
+      { ticket_id: z.number() },
+      async ({ ticket_id }) => text(JSON.stringify(await zammad.getArticles(ticket_id)))
+    ),
+
+    tool(
       'update_ticket',
       'Add a note to the incident Zammad ticket, optionally changing its state (open, closed).',
       { note: z.string(), state: z.enum(['open', 'closed']).optional() },
@@ -154,5 +176,8 @@ export const allowedToolNames = [
   'mcp__ops__vault_read',
   'mcp__ops__ssh_exec',
   'mcp__ops__list_open_tickets',
+  'mcp__ops__icinga_status',
+  'mcp__ops__zammad_recent_tickets',
+  'mcp__ops__zammad_ticket_articles',
   'mcp__ops__update_ticket',
 ];

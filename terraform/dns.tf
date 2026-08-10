@@ -1,5 +1,5 @@
 locals {
-  core_records = ["chat", "sso", "tickets", "icinga", "wiki", "bao"]
+  core_records = ["chat", "sso", "tickets", "icinga", "icinga-api", "wiki", "bao"]
 }
 
 resource "digitalocean_record" "core" {

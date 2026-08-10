@@ -100,6 +100,9 @@ ZAMMAD_TOKEN=$ZAMMAD_TOKEN
 WIKI_URL=https://wiki.$DOMAIN
 BAO_URL=https://bao.$DOMAIN
 BAO_TOKEN=$(bg agentic-demo/openbao-demo root_token)
+ICINGA_API_URL=https://icinga-api.$DOMAIN
+ICINGA_API_USER=agent
+ICINGA_API_PASSWORD=$(bg agentic-demo/icinga api_password)
 EOF
 ssh $SSH_OPTS "root@$AGENT_IP" "mkdir -p /opt/agent"
 scp $SSH_OPTS "$AGENT_ENV" "root@$AGENT_IP:/opt/agent/.env"

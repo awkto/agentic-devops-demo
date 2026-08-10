@@ -45,3 +45,28 @@ export async function listOpen() {
     .filter((t) => ['new', 'open'].includes(t.state))
     .map((t) => ({ id: t.id, number: t.number, title: t.title, state: t.state, created_at: t.created_at }));
 }
+
+export async function listRecent(hours = 24) {
+  const cutoff = Date.now() - hours * 3600 * 1000;
+  const tickets = await api('/tickets?expand=true&per_page=100');
+  return tickets
+    .filter((t) => new Date(t.updated_at).getTime() >= cutoff)
+    .map((t) => ({
+      id: t.id,
+      number: t.number,
+      title: t.title,
+      state: t.state,
+      created_at: t.created_at,
+      updated_at: t.updated_at,
+    }));
+}
+
+export async function getArticles(ticketId) {
+  const articles = await api(`/ticket_articles/by_ticket/${ticketId}`);
+  return articles.map((a) => ({
+    from: a.from,
+    created_at: a.created_at,
+    internal: a.internal,
+    body: (a.body || '').replace(/<[^>]+>/g, ' ').slice(0, 1500),
+  }));
+}

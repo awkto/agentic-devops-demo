@@ -3,16 +3,22 @@ import { config } from './config.js';
 import * as mm from './mattermost.js';
 import * as zammad from './zammad.js';
 import { buildOpsServer, allowedToolNames } from './tools.js';
-import { systemPrompt, incidentPrompt } from './prompts.js';
+import { systemPrompt, incidentPrompt, followupPrompt, mentionPrompt } from './prompts.js';
 
 const CLOSE = Symbol('close');
 
 export class Incident {
-  constructor(key, trigger) {
+  // opts: { rootId, resume, mode, ticketId } for follow-up and mention sessions
+  constructor(key, trigger, opts = {}) {
     this.key = key;
     this.trigger = trigger;
-    this.state = { mode: config.defaultMode, ticketId: trigger.ticketId || null };
-    this.rootId = null;
+    this.state = {
+      mode: opts.mode || config.defaultMode,
+      ticketId: opts.ticketId ?? trigger.ticketId ?? null,
+    };
+    this.rootId = opts.rootId || null;
+    this.resume = opts.resume || null;
+    this.sessionId = null;
     this.queue = [];
     this.waiter = null;
     this.done = false;
@@ -92,8 +98,16 @@ export class Incident {
     }
   }
 
-  async run() {
+  async buildInitialPrompt() {
     const t = this.trigger;
+
+    if (t.source === 'followup') {
+      return followupPrompt(t.username, t.message, this.state.mode);
+    }
+    if (t.source === 'mention') {
+      return mentionPrompt(t.username, t.message, this.state.mode);
+    }
+
     const title = t.source === 'icinga'
       ? `[${t.host}] ${t.service} ${t.state}`
       : `Ticket #${t.ticketNumber}: ${t.title}`;
@@ -122,10 +136,15 @@ export class Incident {
     } else {
       ticketInfo = `This incident came from Zammad ticket id ${this.state.ticketId}.`;
     }
+    return incidentPrompt(t, this.state.mode, ticketInfo);
+  }
+
+  async run() {
+    const initialPrompt = await this.buildInitialPrompt();
 
     const opsServer = buildOpsServer(this);
     this.q = query({
-      prompt: this.inputStream(incidentPrompt(t, this.state.mode, ticketInfo)),
+      prompt: this.inputStream(initialPrompt),
       options: {
         systemPrompt,
         model: config.model,
@@ -133,11 +152,15 @@ export class Incident {
         allowedTools: allowedToolNames,
         permissionMode: 'bypassPermissions',
         maxTurns: 80,
+        ...(this.resume ? { resume: this.resume } : {}),
       },
     });
 
     try {
       for await (const msg of this.q) {
+        if (msg.type === 'system' && msg.subtype === 'init' && msg.session_id) {
+          this.sessionId = msg.session_id;
+        }
         if (msg.type === 'result') {
           if (msg.subtype !== 'success' && msg.subtype !== 'error_max_turns') {
             await mm.post(`Agent session error: ${msg.subtype}`, this.rootId);
