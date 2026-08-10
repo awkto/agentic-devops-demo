@@ -62,6 +62,22 @@ Reply in the incident thread:
 - `read-write` or `go ahead` re-enables fixes
 - anything else is passed to the agent as guidance
 
+## Questions and callouts
+
+After an incident closes, replies in its thread resume the same agent session
+with full memory of what it saw and did. Works for things like:
+
+- "show me the contents of the broken config.json"
+- "show me the log lines with the failure"
+- "which exact commands did you run?"
+- "revert your last change" (honors read-only mode)
+
+Mentioning `@agent` in a top-level channel post starts a fresh Q&A session that
+answers in a thread, e.g.:
+
+- "@agent any acknowledged alerts or active downtimes?"
+- "@agent list the tickets from the last 24 hours and how each was resolved"
+
 ## After
 
 `/opt/break/restore-all.sh` on cust1, close stray tickets, or just
