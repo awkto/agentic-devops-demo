@@ -31,6 +31,10 @@ agent.${DOMAIN} {
 EOF
 systemctl reload caddy || systemctl restart caddy
 
+id agentd >/dev/null 2>&1 || useradd -r -d /opt/agent -s /usr/sbin/nologin agentd
+chown -R agentd:agentd /opt/agent
+chmod 600 /opt/agent/.env
+
 cp /opt/demo/agent/agentd.service /etc/systemd/system/agentd.service
 systemctl daemon-reload
 systemctl enable agentd

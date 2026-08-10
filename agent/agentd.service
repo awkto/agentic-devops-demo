@@ -3,6 +3,8 @@ Description=Agent harness
 After=network-online.target
 
 [Service]
+User=agentd
+Environment=HOME=/opt/agent
 EnvironmentFile=/opt/agent/.env
 WorkingDirectory=/opt/agent
 ExecStart=/usr/bin/node src/server.js
