@@ -51,4 +51,5 @@ Watch the Incidents channel in Mattermost. Reply in the incident thread with
 `stop`, `read-only`, `read-write`, or free-text guidance.
 
 See `docs/runbook.md` for the full walkthrough and `docs/deploy-notes.md` for
-version pins and setup gotchas before changing anything.
+version pins and setup gotchas before changing anything. `docs/next-session.md`
+is the plan for the next build round.
