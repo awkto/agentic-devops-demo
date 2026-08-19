@@ -2,7 +2,9 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import { config } from './config.js';
 import * as mm from './mattermost.js';
 import * as zammad from './zammad.js';
-import { buildOpsServer, allowedToolNames } from './tools.js';
+import * as sessions from './sessions.js';
+import { buildOpsServer, allowedToolNames, openaiToolSchemas, runTool } from './tools.js';
+import { runTurn } from './oaichat.js';
 import { systemPrompt, incidentPrompt, followupPrompt, mentionPrompt } from './prompts.js';
 
 const CLOSE = Symbol('close');
@@ -61,8 +63,10 @@ export class Incident {
   }
 
   async stop() {
-    try { await this.q?.interrupt(); } catch {}
+    this.stopped = true;
     this.close('stopped by engineer');
+    try { this.aborter?.abort(); } catch {}
+    try { await this.q?.interrupt(); } catch {}
   }
 
   async handleThreadReply(text, username) {
@@ -139,7 +143,78 @@ export class Incident {
     return incidentPrompt(t, this.state.mode, ticketInfo);
   }
 
-  async run() {
+  // Queue items that arrived while a turn is running, minus CLOSE (close()
+  // already set done, which the loop checks). Feeds mid-turn steering.
+  drainQueued() {
+    const out = [];
+    while (this.queue.length) {
+      const item = this.queue.shift();
+      if (item !== CLOSE) out.push(item);
+    }
+    return out;
+  }
+
+  run() {
+    return config.modelBaseUrl ? this.runOpenAI() : this.runSdk();
+  }
+
+  // Provider-agnostic loop against any OpenAI-compatible endpoint. We own the
+  // message array and persist it per session id, so follow-ups resume with
+  // full context regardless of provider.
+  async runOpenAI() {
+    const initialPrompt = await this.buildInitialPrompt();
+    this.sessionId = this.resume || crypto.randomUUID();
+    this.messages = (this.resume && sessions.load(this.resume)) ||
+      [{ role: 'system', content: systemPrompt }];
+    this.aborter = new AbortController();
+    const tools = openaiToolSchemas();
+
+    let input = initialPrompt;
+    try {
+      while (true) {
+        this.messages.push({ role: 'user', content: input });
+        const r = await runTurn({
+          baseUrl: config.modelBaseUrl,
+          apiKey: config.modelApiKey,
+          model: config.model,
+          messages: this.messages,
+          tools,
+          invoke: (name, args) => runTool(this, name, args),
+          isAborted: () => this.done,
+          injectUser: () => this.drainQueued(),
+          signal: this.aborter.signal,
+          maxTokens: config.maxTokens,
+          temperature: config.temperature,
+        });
+        sessions.save(this.sessionId, this.messages);
+        if (r.stop === 'max_iters') {
+          await mm.post('Agent session hit the turn limit and stopped.', this.rootId);
+        }
+        if (this.done) return;
+        // Turn finished. Keep the thread open for follow-up questions.
+        this.resetIdleTimer();
+        const item = await this.nextInput();
+        if (item === CLOSE) return;
+        input = item;
+      }
+    } catch (err) {
+      console.error(`incident ${this.key} failed`, err);
+      await mm.post(`Agent session crashed: ${err.message}`, this.rootId).catch(() => {});
+    } finally {
+      this.done = true;
+      clearTimeout(this.idleTimer);
+      if (this.messages) {
+        // Leave a trace of an engineer stop in the transcript, so a later
+        // resume knows the session was interrupted rather than abandoned.
+        if (this.stopped) {
+          this.messages.push({ role: 'user', content: '[The engineer sent "stop". The session was interrupted and closed at this point.]' });
+        }
+        sessions.save(this.sessionId, this.messages);
+      }
+    }
+  }
+
+  async runSdk() {
     const initialPrompt = await this.buildInitialPrompt();
 
     const opsServer = buildOpsServer(this);

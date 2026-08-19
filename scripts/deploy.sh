@@ -83,12 +83,30 @@ bao kv put agentic-demo/zammad-api token="$ZAMMAD_TOKEN" >/dev/null
 
 echo "==> agent host"
 sync_repo "$AGENT_IP"
+
+# MODEL_PROVIDER=fireworks runs the harness's own loop against Fireworks;
+# anthropic (default) keeps the Claude Agent SDK path. Override AGENT_MODEL to
+# pick a specific model either way.
+MODEL_PROVIDER=${MODEL_PROVIDER:-anthropic}
+if [ "$MODEL_PROVIDER" = "fireworks" ]; then
+  MODEL_BASE_URL=$(bg agentic-demo/fireworks base_url)
+  MODEL_API_KEY=$(bg agentic-demo/fireworks api_key)
+  AGENT_MODEL=${AGENT_MODEL:-accounts/fireworks/models/qwen3p7-plus}
+else
+  MODEL_BASE_URL=${MODEL_BASE_URL:-}
+  MODEL_API_KEY=${MODEL_API_KEY:-}
+  AGENT_MODEL=${AGENT_MODEL:-claude-sonnet-5}
+fi
+echo "model provider: $MODEL_PROVIDER, model: $AGENT_MODEL"
+
 AGENT_ENV=$(mktemp)
 cat > "$AGENT_ENV" <<EOF
 DOMAIN=$DOMAIN
 PORT=8080
 ANTHROPIC_API_KEY=$(bg agentic-demo/anthropic api_key)
-AGENT_MODEL=${AGENT_MODEL:-claude-sonnet-5}
+MODEL_BASE_URL=$MODEL_BASE_URL
+MODEL_API_KEY=$MODEL_API_KEY
+AGENT_MODEL=$AGENT_MODEL
 AGENT_DEFAULT_MODE=read-write
 WEBHOOK_SECRET=$(bg agentic-demo/webhook shared_secret)
 MM_URL=https://chat.$DOMAIN

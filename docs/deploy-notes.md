@@ -66,14 +66,25 @@ icinga2 2.16, icingadb 1.5, icingaweb2 2.14.
 
 ## Agent harness
 
+- Two loop implementations, selected by config (issue #14). `MODEL_BASE_URL`
+  set: the harness's own loop (src/oaichat.js) against any OpenAI-compatible
+  endpoint, authenticated with `MODEL_API_KEY`. Empty: the original Claude
+  Agent SDK path, which reads ANTHROPIC_API_KEY. `deploy.sh` picks via
+  `MODEL_PROVIDER=fireworks|anthropic` (default anthropic); `AGENT_MODEL`
+  overrides the model either way. Switching a live deployment = edit
+  /opt/agent/.env, restart agentd.
+- Session resume differs per path. SDK: CLI session files under HOME/.claude.
+  Own loop: full message arrays under /opt/agent/sessions/<id>.json. Both map
+  Mattermost root posts to session ids via /opt/agent/state.json. Sessions do
+  not survive a provider switch: the id resolves to nothing on the other side,
+  so the follow-up starts a fresh context (degrades, does not break).
 - The Agent SDK spawns the bundled Claude Code CLI, which refuses
   bypassPermissions as root. The service runs as user `agentd` with
-  HOME=/opt/agent.
-- @anthropic-ai/claude-agent-sdk 0.3.x requires zod 4.
-- Session resume: the CLI stores session files under HOME/.claude, and the
-  harness maps Mattermost root posts to session ids in /opt/agent/state.json.
-  bootstrap.sh's rsync excludes .env, state.json and .claude so redeploys keep
-  resumability.
+  HOME=/opt/agent (only the SDK path needs this, but keep the dedicated user).
+- @anthropic-ai/claude-agent-sdk 0.3.x requires zod 4. The own loop derives its
+  OpenAI tool schemas from the same zod shapes via z.toJSONSchema (zod 4).
+- bootstrap.sh's rsync excludes .env, state.json, .claude and sessions so
+  redeploys keep resumability.
 - Mention and incident sessions run concurrently and do not share state; a
   channel summary asked mid-incident may describe a fix still in flight.
 

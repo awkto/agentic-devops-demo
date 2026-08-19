@@ -75,7 +75,11 @@ app.post('/webhook/icinga', auth, (req, res) => {
   }
   const existing = incidents.get(key);
   if (existing && !existing.done) {
-    return res.json({ ok: true, action: 'already-active' });
+    // The service broke again while the previous session is still open (idle
+    // window). Forward into the thread instead of dropping the alert.
+    existing.enqueue(`[Icinga] New problem notification: ${b.host}/${b.service} is ${b.state} again. Output: ${b.output}. Investigate.`);
+    existing.resetIdleTimer();
+    return res.json({ ok: true, action: 'problem-forwarded' });
   }
   launch(key, { source: 'icinga', ...b });
   res.json({ ok: true, action: 'incident-started' });
