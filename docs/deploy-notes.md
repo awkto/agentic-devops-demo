@@ -93,3 +93,51 @@ icinga2 2.16, icingadb 1.5, icingaweb2 2.14.
 - Installed with `php maintenance/run.php install` on first boot; pages seeded
   from stack/core/wiki/pages via `maintenance/run.php edit` reading stdin.
   /var/www/html is a named volume so LocalSettings.php persists.
+
+## Access gate (issue #17)
+
+- The agent authenticates to the sandbox OpenBao with an AppRole
+  (`auth/approle/role/agent`); `bao-init.sh` writes role_id/secret_id to
+  /opt/demo/state and deploy.sh puts them in the agent .env as
+  BAO_ROLE_ID/BAO_SECRET_ID. BAO_TOKEN still works as a legacy fallback.
+- Grants are policies on the role: `agent-base` (list customers) and
+  `agent-cust1` attached by default; `agent-cust1-backups` exists unattached
+  as the demo's restricted system. `scripts/grant-access.sh <system>
+  [grant|revoke]` edits the role from the operator machine.
+- A grant only shows up on a fresh token, so the harness re-logs-in when it
+  sees 403 and retries once; a still-denied read returns an ACCESS DENIED
+  string to the model (fail closed, never a thrown tool error).
+- OpenBao runs in dev mode (in-memory): every deploy reseeds policies and
+  role, so grants do not survive a redeploy. That includes reverting any
+  live-granted access - by design for a demo.
+- The restricted target is a real account: user `backup` on cust1 with
+  snapshot fixtures in /home/backup/snapshots, reachable with the agent key
+  (deploy.sh passes AGENT_PUB into customer/setup.sh).
+
+## SSO (issue #6, partial)
+
+- Keycloak realm template now carries three clients: `openbao` (OIDC),
+  `mattermost` (OIDC posing as GitLab), and the Zammad SAML client. Client
+  secret comes from the operator vault: `agentic-demo/keycloak
+  oidc_client_secret` - **deploy fails on a missing field**, create it once
+  with `bao kv patch agentic-demo/keycloak oidc_client_secret=$(openssl rand
+  -hex 24)`.
+- OpenBao: `bao-init.sh` enables the `oidc` auth method against the realm
+  (role `engineer`, policies `engineers`). Login via the UI's OIDC method.
+  Non-fatal if Keycloak is not up yet.
+- Zammad: SAML enabled by `zammad-init.sh`, which pulls the IdP cert from the
+  live realm SAML descriptor (needs the sso vhost certed, i.e. runs after
+  Caddy has issued certs). Users auto-create on first SSO login. Local login
+  stays.
+- Mattermost Team Edition has no real OIDC; the GitLab login is plain OAuth2
+  pointed at the realm endpoints, with Keycloak mappers shaping the userinfo
+  into GitLab's user JSON (numeric `id` from the gitlab_id user attribute,
+  `username`). Scope must include `openid` or the userinfo endpoint 403s.
+  mmctl writes the container's config.json (not on a volume): settings are
+  reapplied by mattermost-init.sh on each deploy but vanish if the container
+  is recreated without rerunning it. Existing password accounts with the same
+  email must switch sign-in method (Profile > Security) rather than getting
+  auto-linked.
+- Still local-only: MediaWiki (needs PluggableAuth+OIDC extensions baked into
+  the image) and Icinga Web 2 (needs an oauth2-proxy in front with external
+  auth). Tracked in issue #6.

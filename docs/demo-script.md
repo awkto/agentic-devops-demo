@@ -106,6 +106,32 @@ and closes the ticket with root cause, impact, and a recommendation. ~60 s.
   recording if you plan to show it live.)
 - Clean up the wiki row afterwards.
 
+## Scenario 7: access grant at the vault (OpenBao gate)
+
+The agent's vault role is only granted cust1's main credentials; the backup
+account (`customers/cust1-backups`) exists but is not granted.
+
+- Do: top-level post `@agent check that the nightly database snapshots on
+  cust1's backup account are current`.
+- Expect: the agent hits ACCESS DENIED in OpenBao, reports in the thread that
+  it has no grant for that system, and asks for access instead of treating it
+  as an outage.
+- Do: on the operator machine run `scripts/grant-access.sh cust1-backups`,
+  then reply in the thread "access granted, try again".
+- Expect: the agent re-reads the secret (fresh login picks up the policy),
+  sshes in as the backup user, lists /home/backup/snapshots, and reports
+  snapshot freshness.
+- Clean up: `scripts/grant-access.sh cust1-backups revoke`. Grants also reset
+  on every redeploy.
+
+## SSO logins (issue #6, partial)
+
+Keycloak (realm `demo`, users sysadmin/alice/bob, demo-users password) now
+signs you into: Zammad (button "SSO" on the login page), Mattermost (GitLab
+button - Team Edition shim), and OpenBao (OIDC method in the UI login).
+Icinga and the wiki are still local login. Password login works everywhere
+regardless, so SSO failing never blocks the demo.
+
 ## Behavior notes from the dry run (qwen3p7-plus)
 
 - It is fast: a routine incident is fully resolved 60-90 s after the break
