@@ -47,3 +47,24 @@ puts 'zammad ready'
 mkdir -p /opt/demo/state
 (cd /opt/zammad && docker compose exec -T zammad-railsserver cat /tmp/zammad_token) > /opt/demo/state/zammad_token
 echo "zammad configured, token in /opt/demo/state/zammad_token"
+
+# --- SAML via Keycloak (issue #6). Non-fatal: local login always remains. ---
+echo "wiring zammad saml against keycloak"
+IDP_CERT=$(curl -sf "https://sso.${DOMAIN}/realms/demo/protocol/saml/descriptor" \
+  | grep -oPm1 '(?<=X509Certificate>)[^<]+' || true)
+if [ -n "$IDP_CERT" ]; then
+  zrails "
+Setting.set('auth_saml_credentials', {
+  display_name: 'SSO',
+  idp_sso_target_url: 'https://sso.${DOMAIN}/realms/demo/protocol/saml',
+  idp_slo_service_url: 'https://sso.${DOMAIN}/realms/demo/protocol/saml',
+  idp_cert: \"-----BEGIN CERTIFICATE-----\n${IDP_CERT}\n-----END CERTIFICATE-----\",
+  name_identifier_format: 'urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress',
+  security: 'off'
+})
+Setting.set('auth_saml', true)
+puts 'saml on'
+" || echo "WARN: zammad saml setup failed (local login unaffected)"
+else
+  echo "WARN: could not fetch keycloak saml descriptor, skipping zammad saml"
+fi

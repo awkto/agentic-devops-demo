@@ -10,6 +10,7 @@ docker network inspect demo >/dev/null 2>&1 || docker network create demo
 # render keycloak realm from template
 mkdir -p keycloak
 sed -e "s/__DOMAIN__/${DOMAIN}/g" -e "s/__DEMO_USER_PASSWORD__/${DEMO_USER_PASSWORD}/g" \
+  -e "s/__OIDC_CLIENT_SECRET__/${OIDC_CLIENT_SECRET}/g" \
   keycloak-realm.json.tpl > keycloak/demo-realm.json
 
 docker compose up -d
