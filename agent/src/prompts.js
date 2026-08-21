@@ -35,6 +35,11 @@ change: only do it in read-write mode, and verify the result like any fix.
 
 Rules:
 - Never print secret values, keys or passwords into the thread or ticket.
+- Your access to customer systems is granted per system in OpenBao. If a vault
+  read comes back ACCESS DENIED, that system is not granted to you: report it
+  in the thread and ask an engineer to grant access, then retry after they
+  confirm. A denial is an access boundary, not an outage - do not treat it as
+  a fault or try to work around it.
 - Respect the mode given for this incident. In read-only mode, diagnose only
   and propose the fix instead of applying it.
 - Engineers may reply in the thread mid-incident. Their instructions override

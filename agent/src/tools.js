@@ -27,22 +27,55 @@ function readOnlyViolation(command) {
   return !READ_CMDS.has(first);
 }
 
-async function baoRead(secretPath) {
-  const res = await fetch(`${config.bao.url}/v1/secret/data/${secretPath}`, {
-    headers: { 'X-Vault-Token': config.bao.token },
+// The agent authenticates to OpenBao with its own AppRole; its token only
+// carries the policies an engineer has granted. A 403 therefore means "not
+// granted", not an error: re-login once (a fresh grant only shows up on a new
+// token), then fail closed with a message the model can act on. BAO_TOKEN is
+// the legacy static-token path, kept for old deployments.
+class BaoDenied extends Error {
+  constructor(secretPath) {
+    super(`openbao access to ${secretPath} not granted`);
+    this.secretPath = secretPath;
+  }
+}
+
+const deniedMessage = (secretPath) =>
+  `ACCESS DENIED: OpenBao has not granted this agent access to "${secretPath}". ` +
+  'An engineer can grant it (attach the matching policy to the agent role in OpenBao). ' +
+  'Report this in the thread and ask for access; once granted, simply retry.';
+
+let baoToken = config.bao.token || null;
+
+async function baoLogin() {
+  const res = await fetch(`${config.bao.url}/v1/auth/approle/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ role_id: config.bao.roleId, secret_id: config.bao.secretId }),
   });
-  if (!res.ok) throw new Error(`openbao read ${secretPath}: ${res.status}`);
-  const json = await res.json();
-  return json.data.data;
+  if (!res.ok) throw new Error(`openbao approle login failed: ${res.status}`);
+  baoToken = (await res.json()).auth.client_token;
+}
+
+async function baoFetch(secretPath, { list = false } = {}) {
+  const url = `${config.bao.url}/v1/secret/${list ? 'metadata' : 'data'}/${secretPath}${list ? '?list=true' : ''}`;
+  const get = () => fetch(url, { headers: { 'X-Vault-Token': baoToken } });
+  if (!baoToken && config.bao.roleId) await baoLogin();
+  let res = await get();
+  if ((res.status === 403 || res.status === 401) && config.bao.roleId) {
+    await baoLogin();
+    res = await get();
+  }
+  if (res.status === 403) throw new BaoDenied(secretPath);
+  if (!res.ok) throw new Error(`openbao ${list ? 'list' : 'read'} ${secretPath}: ${res.status}`);
+  return res.json();
+}
+
+async function baoRead(secretPath) {
+  return (await baoFetch(secretPath)).data.data;
 }
 
 async function baoList(secretPath) {
-  const res = await fetch(`${config.bao.url}/v1/secret/metadata/${secretPath}?list=true`, {
-    headers: { 'X-Vault-Token': config.bao.token },
-  });
-  if (!res.ok) throw new Error(`openbao list ${secretPath}: ${res.status}`);
-  const json = await res.json();
-  return json.data.keys;
+  return (await baoFetch(secretPath, { list: true })).data.keys;
 }
 
 // Provider-neutral tool registry. Each entry is a zod shape plus a handler
@@ -76,7 +109,14 @@ const defs = [
     name: 'vault_list',
     description: 'List entries under a path in OpenBao, e.g. "customers".',
     shape: { path: z.string() },
-    run: async (_incident, { path: p }) => JSON.stringify(await baoList(p)),
+    run: async (_incident, { path: p }) => {
+      try {
+        return JSON.stringify(await baoList(p));
+      } catch (err) {
+        if (err instanceof BaoDenied) return deniedMessage(p);
+        throw err;
+      }
+    },
   },
 
   {
@@ -84,7 +124,13 @@ const defs = [
     description: 'Read a secret from OpenBao, e.g. "customers/cust1". Private key material is redacted; ssh_exec uses it automatically.',
     shape: { path: z.string() },
     run: async (_incident, { path: p }) => {
-      const data = await baoRead(p);
+      let data;
+      try {
+        data = await baoRead(p);
+      } catch (err) {
+        if (err instanceof BaoDenied) return deniedMessage(p);
+        throw err;
+      }
       const safe = {};
       for (const [k, v] of Object.entries(data)) {
         safe[k] = /private_key|password|secret/i.test(k) ? '(redacted, used automatically)' : v;
@@ -101,7 +147,13 @@ const defs = [
       if (incident.state.mode === 'read-only' && readOnlyViolation(command)) {
         return `BLOCKED: incident is in read-only mode, command not on the diagnostic allowlist: ${command}`;
       }
-      const creds = await baoRead(`customers/${customer}`);
+      let creds;
+      try {
+        creds = await baoRead(`customers/${customer}`);
+      } catch (err) {
+        if (err instanceof BaoDenied) return deniedMessage(`customers/${customer}`);
+        throw err;
+      }
       const keyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-key-'));
       const keyFile = path.join(keyDir, 'id');
       try {

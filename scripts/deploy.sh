@@ -61,11 +61,12 @@ WIKI_ADMIN_PASSWORD=$(bg agentic-demo/mediawiki admin_password)
 BAO_DEMO_TOKEN=$(bg agentic-demo/openbao-demo root_token)
 WEBHOOK_SECRET=$(bg agentic-demo/webhook shared_secret)
 DEMO_USER_PASSWORD=$(bg agentic-demo/demo-users password)
+OIDC_CLIENT_SECRET=$(bg agentic-demo/keycloak oidc_client_secret)
 EOF
 
 echo "==> customer host"
 sync_repo "$CUST1_IP"
-ssh $SSH_OPTS "root@$CUST1_IP" "bash /opt/demo/customer/setup.sh"
+ssh $SSH_OPTS "root@$CUST1_IP" "AGENT_PUB='$(bg agentic-demo/ssh-agent public_key)' bash /opt/demo/customer/setup.sh"
 
 echo "==> core host"
 sync_repo "$CORE_IP"
@@ -78,6 +79,8 @@ ssh $SSH_OPTS "root@$CORE_IP" "bash /opt/demo/stack/core/bootstrap.sh"
 echo "==> collect generated tokens"
 MM_TOKEN=$(ssh $SSH_OPTS "root@$CORE_IP" cat /opt/demo/state/mm_token)
 ZAMMAD_TOKEN=$(ssh $SSH_OPTS "root@$CORE_IP" cat /opt/demo/state/zammad_token)
+BAO_ROLE_ID=$(ssh $SSH_OPTS "root@$CORE_IP" cat /opt/demo/state/bao_role_id)
+BAO_SECRET_ID=$(ssh $SSH_OPTS "root@$CORE_IP" cat /opt/demo/state/bao_secret_id)
 bao kv put agentic-demo/mattermost-bot token="$MM_TOKEN" >/dev/null
 bao kv put agentic-demo/zammad-api token="$ZAMMAD_TOKEN" >/dev/null
 
@@ -117,7 +120,8 @@ ZAMMAD_URL=https://tickets.$DOMAIN
 ZAMMAD_TOKEN=$ZAMMAD_TOKEN
 WIKI_URL=https://wiki.$DOMAIN
 BAO_URL=https://bao.$DOMAIN
-BAO_TOKEN=$(bg agentic-demo/openbao-demo root_token)
+BAO_ROLE_ID=$BAO_ROLE_ID
+BAO_SECRET_ID=$BAO_SECRET_ID
 ICINGA_API_URL=https://icinga-api.$DOMAIN
 ICINGA_API_USER=agent
 ICINGA_API_PASSWORD=$(bg agentic-demo/icinga api_password)

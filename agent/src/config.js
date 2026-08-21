@@ -32,9 +32,14 @@ export const config = {
   wiki: {
     url: required('WIKI_URL'),
   },
+  // AppRole (role_id + secret_id) is the normal path: the agent's token only
+  // carries engineer-granted policies. BAO_TOKEN is the legacy static-token
+  // fallback for old deployments.
   bao: {
     url: required('BAO_URL'),
-    token: required('BAO_TOKEN'),
+    token: process.env.BAO_TOKEN || '',
+    roleId: process.env.BAO_ROLE_ID || '',
+    secretId: process.env.BAO_SECRET_ID || '',
   },
   icinga: {
     url: process.env.ICINGA_API_URL || '',
@@ -42,3 +47,7 @@ export const config = {
     password: process.env.ICINGA_API_PASSWORD || '',
   },
 };
+
+if (!config.bao.token && !(config.bao.roleId && config.bao.secretId)) {
+  throw new Error('missing OpenBao credentials: set BAO_ROLE_ID + BAO_SECRET_ID (or legacy BAO_TOKEN)');
+}

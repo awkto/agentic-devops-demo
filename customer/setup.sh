@@ -38,4 +38,21 @@ mkdir -p /opt/break
 cp /opt/demo/customer/break/*.sh /opt/break/
 chmod +x /opt/break/*.sh
 
+# backup account: the restricted system for the OpenBao access-grant demo.
+# Reachable with the agent key (AGENT_PUB passed in by deploy.sh), but the
+# agent's vault role is not granted the cust1-backups secret by default.
+if [ -n "${AGENT_PUB:-}" ]; then
+  id backup >/dev/null 2>&1 || useradd -m -s /bin/bash backup
+  mkdir -p /home/backup/.ssh /home/backup/snapshots
+  echo "$AGENT_PUB" > /home/backup/.ssh/authorized_keys
+  chmod 700 /home/backup/.ssh
+  chmod 600 /home/backup/.ssh/authorized_keys
+  for d in 1 2 3; do
+    f="/home/backup/snapshots/cust1-db-$(date -d "-$d day" +%Y%m%d).tar.gz"
+    [ -f "$f" ] || head -c $((RANDOM + 20000)) /dev/urandom > "$f"
+  done
+  ls -l /home/backup/snapshots > /home/backup/snapshots/snapshots.log
+  chown -R backup:backup /home/backup
+fi
+
 echo "customer host ready"
