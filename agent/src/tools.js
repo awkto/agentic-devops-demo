@@ -57,6 +57,10 @@ async function baoLogin() {
 }
 
 async function baoFetch(secretPath, { list = false } = {}) {
+  // Docs and vault CLI output write paths as "secret/customers/cust1"; the
+  // API mounts kv-v2 data/metadata under the mount name. Accept either form
+  // so a model quoting the wiki verbatim does not get a bogus ACCESS DENIED.
+  secretPath = secretPath.replace(/^\/+/, '').replace(/^secret\/(data\/|metadata\/)?/, '');
   const url = `${config.bao.url}/v1/secret/${list ? 'metadata' : 'data'}/${secretPath}${list ? '?list=true' : ''}`;
   const get = () => fetch(url, { headers: { 'X-Vault-Token': baoToken } });
   if (!baoToken && config.bao.roleId) await baoLogin();
