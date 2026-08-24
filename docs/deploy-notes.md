@@ -128,16 +128,28 @@ icinga2 2.16, icingadb 1.5, icingaweb2 2.14.
 - Zammad: SAML enabled by `zammad-init.sh`, which pulls the IdP cert from the
   live realm SAML descriptor (needs the sso vhost certed, i.e. runs after
   Caddy has issued certs). Users auto-create on first SSO login. Local login
-  stays.
+  stays. The inner zammad-nginx must send `X-Forwarded-Proto https`
+  (`NGINX_SERVER_SCHEME=https` in zammad-override.yml) or Rails rejects the
+  SAML kickoff POST with InvalidAuthenticityToken - it sees plain http from
+  Caddy and fails the origin check.
 - Mattermost Team Edition has no real OIDC; the GitLab login is plain OAuth2
   pointed at the realm endpoints, with Keycloak mappers shaping the userinfo
   into GitLab's user JSON (numeric `id` from the gitlab_id user attribute,
-  `username`). Scope must include `openid` or the userinfo endpoint 403s.
+  `username`). Two traps, verified 24 Aug 2026:
+  - GitLabSettings.Scope must NOT contain `openid` - Mattermost substring-
+    matches it and routes to the enterprise-only OpenID provider, so the
+    GitLab button 501s ("Gitlab SSO through OAuth 2.0 not available").
+    Keep Scope empty.
+  - Keycloak 24+ refuses userinfo unless the access token carries the openid
+    scope, which Mattermost therefore cannot request. mattermost-init.sh
+    creates a client scope literally named `openid` and attaches it as a
+    default scope on the mattermost client, so tokens carry it unrequested.
   mmctl writes the container's config.json (not on a volume): settings are
   reapplied by mattermost-init.sh on each deploy but vanish if the container
-  is recreated without rerunning it. Existing password accounts with the same
-  email must switch sign-in method (Profile > Security) rather than getting
-  auto-linked.
+  is recreated without rerunning it. Mattermost refuses SSO logins for
+  existing password accounts with the same email, so mattermost-init.sh flips
+  alice/bob to gitlab auth in the DB (authdata = realm gitlab_id); sysadmin
+  stays on password as the admin fallback.
 - Still local-only: MediaWiki (needs PluggableAuth+OIDC extensions baked into
   the image) and Icinga Web 2 (needs an oauth2-proxy in front with external
   auth). Tracked in issue #6.

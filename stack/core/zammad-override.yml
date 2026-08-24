@@ -9,3 +9,9 @@ services:
     networks:
       default:
       demo:
+    # Caddy terminates TLS, so this inner nginx sees plain http and would
+    # forward X-Forwarded-Proto=http; Rails then fails the SAML kickoff with
+    # InvalidAuthenticityToken (origin https vs base_url http). Pin the
+    # forwarded scheme to https (entrypoint rewrites the proxy headers).
+    environment:
+      - NGINX_SERVER_SCHEME=https

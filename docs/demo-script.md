@@ -30,7 +30,7 @@ Timings below are from the 19 Aug 2026 dry run on qwen3p7-plus via Fireworks.
    | Service | User | Password field |
    |---|---|---|
    | Mattermost (admin) | sysadmin | `mattermost` admin_password |
-   | Mattermost (demo engineer) | alice or bob | `demo-users` password |
+   | Mattermost (demo engineer) | alice or bob | GitLab button, then `demo-users` password at Keycloak |
    | Zammad | admin@gobyl.cc | `zammad` admin_password |
    | Icinga | icingaadmin | `icinga` admin_password |
    | MediaWiki | Admin | `mediawiki` admin_password |
