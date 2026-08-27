@@ -17,7 +17,7 @@ dc exec -u root -T icinga2 bash -c '
   mkdir -p /data/ssh /data/scripts
 '
 
-envsubst '${ICINGA_API_PASSWORD} ${CUST1_IP} ${DOMAIN} ${AGENT_WEBHOOK_URL} ${WEBHOOK_SECRET}' \
+envsubst '${ICINGA_API_PASSWORD} ${CUST1_IP} ${DB1_IP} ${DOMAIN} ${AGENT_WEBHOOK_URL} ${WEBHOOK_SECRET}' \
   < icinga/demo.conf.tpl > /tmp/icinga-demo.conf
 dc cp /tmp/icinga-demo.conf icinga2:/data/etc/icinga2/conf.d/demo.conf
 dc cp icinga/notify-agent.sh icinga2:/data/scripts/notify-agent.sh

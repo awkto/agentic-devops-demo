@@ -20,7 +20,8 @@ echo "==> terraform"
 CORE_IP=$(cd terraform && terraform output -raw core_ip)
 AGENT_IP=$(cd terraform && terraform output -raw agent_ip)
 CUST1_IP=$(cd terraform && terraform output -raw cust1_ip)
-echo "core=$CORE_IP agent=$AGENT_IP cust1=$CUST1_IP"
+DB1_IP=$(cd terraform && terraform output -raw db1_ip)
+echo "core=$CORE_IP agent=$AGENT_IP cust1=$CUST1_IP db1=$DB1_IP"
 
 OPS_KEY=$(mktemp)
 trap 'rm -f "$OPS_KEY"' EXIT
@@ -36,8 +37,8 @@ wait_cloudinit() {
   ssh $SSH_OPTS "root@$1" cloud-init status --wait >/dev/null || true
 }
 
-for ip in "$CORE_IP" "$AGENT_IP" "$CUST1_IP"; do wait_ssh "$ip"; done
-for ip in "$CORE_IP" "$AGENT_IP" "$CUST1_IP"; do wait_cloudinit "$ip"; done
+for ip in "$CORE_IP" "$AGENT_IP" "$CUST1_IP" "$DB1_IP"; do wait_ssh "$ip"; done
+for ip in "$CORE_IP" "$AGENT_IP" "$CUST1_IP" "$DB1_IP"; do wait_cloudinit "$ip"; done
 
 # Authorize the operator's own key on every host so you can ssh in as yourself
 # instead of juggling the generated ops key. Optional: set it once with
@@ -46,7 +47,7 @@ for ip in "$CORE_IP" "$AGENT_IP" "$CUST1_IP"; do wait_cloudinit "$ip"; done
 OPERATOR_PUBKEY=$(bao kv get -format=json agentic-demo/ssh-operator 2>/dev/null | jq -r '.data.data.public_key // empty')
 if [ -n "$OPERATOR_PUBKEY" ]; then
   echo "==> authorizing operator key"
-  for ip in "$CORE_IP" "$AGENT_IP" "$CUST1_IP"; do
+  for ip in "$CORE_IP" "$AGENT_IP" "$CUST1_IP" "$DB1_IP"; do
     ssh $SSH_OPTS "root@$ip" \
       "grep -qxF '$OPERATOR_PUBKEY' /root/.ssh/authorized_keys || echo '$OPERATOR_PUBKEY' >> /root/.ssh/authorized_keys"
   done
@@ -64,6 +65,7 @@ CORE_ENV=$(mktemp)
 cat > "$CORE_ENV" <<EOF
 DOMAIN=$DOMAIN
 CUST1_IP=$CUST1_IP
+DB1_IP=$DB1_IP
 POSTGRES_PASSWORD=$(bg agentic-demo/postgres password)
 KEYCLOAK_ADMIN_PASSWORD=$(bg agentic-demo/keycloak admin_password)
 MM_ADMIN_PASSWORD=$(bg agentic-demo/mattermost admin_password)
@@ -77,9 +79,13 @@ DEMO_USER_PASSWORD=$(bg agentic-demo/demo-users password)
 OIDC_CLIENT_SECRET=$(bg agentic-demo/keycloak oidc_client_secret)
 EOF
 
+echo "==> database host"
+sync_repo "$DB1_IP"
+ssh $SSH_OPTS "root@$DB1_IP" "CUST1_IP='$CUST1_IP' AGENT_PUB='$(bg agentic-demo/ssh-agent public_key)' bash /opt/demo/customer/db/setup.sh"
+
 echo "==> customer host"
 sync_repo "$CUST1_IP"
-ssh $SSH_OPTS "root@$CUST1_IP" "AGENT_PUB='$(bg agentic-demo/ssh-agent public_key)' bash /opt/demo/customer/setup.sh"
+ssh $SSH_OPTS "root@$CUST1_IP" "DB_HOST='db1.$DOMAIN' AGENT_PUB='$(bg agentic-demo/ssh-agent public_key)' bash /opt/demo/customer/setup.sh"
 
 echo "==> core host"
 sync_repo "$CORE_IP"

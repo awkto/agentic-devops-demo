@@ -24,8 +24,33 @@ docker compose exec -T \
     < /opt/demo/state/agent_ed25519
 
 bao_exec kv put secret/customers/cust1-meta \
-  services="nginx (website :80), nodeapp (systemd unit, :3000), postgresql (:5432 local)" \
+  services="nginx (website :80) and nodeapp (systemd unit, :3000) on cust1; postgresql (:5432) on db1 - separate host, secret customers/cust1-db, read-only for this agent" \
   wiki_page="Cust1" >/dev/null
+
+# The database host. The agent holds a working credential (dbops) but the
+# system is tiered read-only: the harness blocks write commands for it, and
+# dbops has no sudo anyway. Diagnose freely, change nothing.
+docker compose exec -T \
+  -e BAO_ADDR=http://127.0.0.1:8200 -e BAO_TOKEN="${BAO_DEMO_TOKEN}" \
+  openbao bao kv put secret/customers/cust1-db \
+    host="db1.${DOMAIN}" \
+    ssh_user=dbops \
+    tier="read-only" \
+    note="cust1 database host. Diagnostics only: read logs, configs, unit and port state. dbops has no sudo. Changes need an engineer, or an emergency grant of customers/cust1-db-admin." \
+    ssh_private_key=- \
+    < /opt/demo/state/agent_ed25519
+
+# Emergency escalation for db1: root access, NOT granted to the agent role by
+# default. An engineer grants it mid-incident:
+#   scripts/grant-access.sh cust1-db-admin
+docker compose exec -T \
+  -e BAO_ADDR=http://127.0.0.1:8200 -e BAO_TOKEN="${BAO_DEMO_TOKEN}" \
+  openbao bao kv put secret/customers/cust1-db-admin \
+    host="db1.${DOMAIN}" \
+    ssh_user=root \
+    note="emergency root on the cust1 database host - granted by an engineer during an incident, revoke after" \
+    ssh_private_key=- \
+    < /opt/demo/state/agent_ed25519
 
 # Restricted system for the access-grant demo: the backup account on cust1.
 # Same key material, but the agent role does NOT carry this policy by default.
@@ -62,9 +87,21 @@ path "secret/data/customers/cust1-backups" {
 }
 EOF
 
+bao_exec policy write agent-cust1-db - <<'EOF'
+path "secret/data/customers/cust1-db" {
+  capabilities = ["read"]
+}
+EOF
+
+bao_exec policy write agent-cust1-db-admin - <<'EOF'
+path "secret/data/customers/cust1-db-admin" {
+  capabilities = ["read"]
+}
+EOF
+
 bao_exec auth enable approle 2>/dev/null || true
 bao_exec write auth/approle/role/agent \
-  token_policies="agent-base,agent-cust1" \
+  token_policies="agent-base,agent-cust1,agent-cust1-db" \
   token_ttl=1h token_max_ttl=4h
 mkdir -p /opt/demo/state
 bao_exec read -field=role_id auth/approle/role/agent/role-id > /opt/demo/state/bao_role_id
@@ -109,4 +146,4 @@ then
   fi
 fi
 
-echo "openbao seeded: customer secrets, agent approle (granted: cust1), oidc login"
+echo "openbao seeded: customer secrets, agent approle (granted: cust1, cust1-db read-only), oidc login"

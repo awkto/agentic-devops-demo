@@ -3,7 +3,9 @@ Customer systems we maintain. Each customer page documents hosts, services and a
 {| class="wikitable"
 ! Customer !! Host !! Purpose !! Details
 |-
-| Cust1 || cust1.__DOMAIN__ || Web platform (site, app, database) || [[Cust1]]
+| Cust1 || cust1.__DOMAIN__ || Web platform (site + app) || [[Cust1]]
+|-
+| Cust1 || db1.__DOMAIN__ || Database (PostgreSQL) - read-only for the agent || [[Db1]]
 |}
 
 Access credentials for all customer systems are stored in OpenBao under <code>secret/customers/</code>. Never copy credentials into the wiki or tickets.

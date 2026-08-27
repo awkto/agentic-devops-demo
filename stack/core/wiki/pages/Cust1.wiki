@@ -1,27 +1,29 @@
-Customer 1 runs a small web platform on a single host.
+Customer 1 runs a small web platform on two hosts: the web host <code>cust1</code> and the database host <code>db1</code>.
 
-== Host ==
-* FQDN: cust1.__DOMAIN__
-* OS: Ubuntu 24.04
-* Access: ssh as root, key in OpenBao at <code>secret/customers/cust1</code>
+== Hosts ==
+{| class="wikitable"
+! Host !! Role !! Agent access
+|-
+| cust1.__DOMAIN__ || Website and application || ssh as root, key in OpenBao at <code>secret/customers/cust1</code>
+|-
+| db1.__DOMAIN__ || PostgreSQL database || '''Read-only''': ssh as <code>dbops</code> (no sudo), key at <code>secret/customers/cust1-db</code>. See [[Db1]]
+|}
 
-== Services ==
+== Services on cust1 ==
 {| class="wikitable"
 ! Service !! How it runs !! Port !! Notes
 |-
 | Website || nginx, static files in /var/www/html || 80 || Public trading dashboard. Market data is generated in the browser, so the page renders with the application down
 |-
-| Application || systemd unit <code>nodeapp</code>, code in /opt/app || 3000 || Account service: serves customer positions from PostgreSQL as JSON at /api/positions, which the website fetches. Reads config from /opt/app/config.json
-|-
-| Database || PostgreSQL (distro package), data on / || 5432 (localhost) || Holds the <code>positions</code> table. Used by the application only
+| Application || systemd unit <code>nodeapp</code>, code in /opt/app || 3000 || Account service: serves customer positions from PostgreSQL '''on db1''' as JSON at /api/positions, which the website fetches. Reads config from /opt/app/config.json
 |}
 
 == Operational notes ==
-* Restart services with <code>systemctl restart nginx|nodeapp|postgresql</code>.
+* Restart services with <code>systemctl restart nginx|nodeapp</code>.
 * Application logs: <code>journalctl -u nodeapp</code>. It exits nonzero if /opt/app/config.json is missing or the database is unreachable.
-* PostgreSQL config lives in /etc/postgresql/16/main/. The application expects the default port 5432.
+* The database is PostgreSQL on [[Db1]], port 5432, reachable only from inside the network. If the app reports database errors, check db1 too - but remember this agent may only diagnose there, not change anything.
 * Disk pressure history: log growth under /var/log has filled the disk before. Safe to delete old files in /var/log/app-debug/.
-* Monitoring: Icinga checks website, nodeapp, disk and postgres from the ops core host.
+* Monitoring: Icinga checks website, nodeapp and disk on cust1, and postgres and disk on db1, from the ops core host.
 
 == Escalation ==
-Before changing anything, check the [[Maintenance calendar]] and open tickets for planned work. If the fix is not obvious or requires data-destructive steps, stop and hand over to the on-call engineer in the Incidents channel.
+Before changing anything, check the [[Maintenance calendar]] and open tickets for planned work. If the fix is not obvious or requires data-destructive steps, stop and hand over to the on-call engineer in the Incidents channel. Changes on db1 always require an engineer (or an emergency access grant) - see [[Db1]].

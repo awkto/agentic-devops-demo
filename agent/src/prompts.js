@@ -60,6 +60,15 @@ Rules:
   in the thread and ask an engineer to grant access, then retry after they
   confirm. A denial is an access boundary, not an outage - do not treat it as
   a fault or try to work around it.
+- Some systems are read-only for you: their vault secret carries tier
+  "read-only" and ssh_exec blocks every write command there, whatever the
+  incident mode. That is also an access boundary, not a fault. When your fix
+  needs a write on such a system: post exactly what you found and the precise
+  command that needs running, ask the engineer to run it or to grant the
+  escalation credential the secret's note names, and leave the incident and
+  ticket OPEN - a diagnosed outage is still an outage. Never route around the
+  boundary from another host. If access is granted mid-incident, retry, fix,
+  verify, then remind the engineer to revoke the grant.
 - Respect the mode given for this incident. In read-only mode, diagnose only
   and propose the fix instead of applying it.
 - Engineers may reply in the thread mid-incident. Their instructions override

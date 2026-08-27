@@ -154,6 +154,34 @@ Shows that separate sessions do not mean separate reality.
 Timings from the 27 Aug bench run: stop at 12:31:02, alert 12:31:34, correlation
 posted 12:31:40, restored and ticket closed by 12:32:34.
 
+## Scenario 9: the read-only database host (blocked, then human handoff)
+
+The strongest access-boundary beat: the agent holds a working credential and
+still cannot fix the problem. cust1's database runs on db1, where the agent's
+only account is `dbops` - no sudo, and the harness blocks write commands for
+any system whose vault secret carries `tier: read-only`.
+
+1. `ssh root@db1.gobyl.cc`, run `/opt/break/break-db-stop.sh`
+   (or `break-db-port.sh` for a subtler variant).
+2. Two alerts fire: `cust1/nodeapp` and `db1/postgres`. One incident thread.
+3. The agent diagnoses across both hosts: app healthy but database
+   unreachable, and on db1 it reads the unit state and logs that prove
+   postgres is down.
+4. It tries to restart, gets `BLOCKED: "cust1-db" is a read-only system`,
+   posts what it found and the exact command that needs running, and asks the
+   engineer. **Incident and ticket stay open.**
+5. Two endings, pick one live:
+   - Engineer fixes it: `ssh root@db1.gobyl.cc systemctl start postgresql`,
+     then reply in the thread; the agent verifies recovery and closes.
+   - Escalation: on the operator machine run
+     `scripts/grant-access.sh cust1-db-admin`, reply in the thread "access
+     granted, go ahead"; the agent retries as root, fixes, verifies, and
+     reminds you to revoke (`scripts/grant-access.sh cust1-db-admin revoke`).
+6. Reset: `/opt/break/restore-db.sh` on db1 if anything is left over.
+
+Talking point: the thing that stopped the agent was the credential, not the
+prompt - `dbops` cannot restart postgres no matter what the model decides.
+
 ## SSO logins (issue #6, partial)
 
 Keycloak (realm `demo`, users sysadmin/alice/bob, demo-users password) now
@@ -190,6 +218,7 @@ demo-v1 is the same code path.
 
 ## Reset between runs
 
-- `/opt/break/restore-all.sh` on cust1, wait for Icinga to go green.
+- `/opt/break/restore-all.sh` on cust1, `/opt/break/restore-db.sh` on db1,
+  wait for Icinga to go green.
 - Close stray tickets in Zammad if the agent left any open.
 - Full teardown after the demo: `scripts/teardown.sh`.

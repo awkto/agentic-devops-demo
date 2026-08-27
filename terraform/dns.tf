@@ -29,3 +29,12 @@ resource "digitalocean_record" "cust1" {
   value    = digitalocean_droplet.cust1.ipv4_address
   ttl      = 300
 }
+
+resource "digitalocean_record" "db1" {
+  provider = digitalocean.dns
+  domain   = var.domain
+  type     = "A"
+  name     = "db1"
+  value    = digitalocean_droplet.db1.ipv4_address
+  ttl      = 300
+}

@@ -1,59 +1,43 @@
 #!/bin/bash
 # Run on the customer droplet as root. Expects /opt/demo to be a checkout of
-# this repo.
+# this repo. Env: DB_HOST (the database host, db1.<domain>; defaults to
+# localhost for old single-host deploys), AGENT_PUB (agent public key for the
+# restricted backup account).
 set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq nginx postgresql monitoring-plugins-basic nodejs npm
+apt-get install -y -qq nginx monitoring-plugins-basic nodejs npm jq
+
+DB_HOST=${DB_HOST:-127.0.0.1}
+
+# migration: the database used to run locally on this host. If it is moving
+# to db1, take the local install out of the picture so diagnosis stays honest.
+if [ "$DB_HOST" != "127.0.0.1" ] && dpkg -l postgresql 2>/dev/null | grep -q '^ii'; then
+  echo "==> removing local postgres (database now lives on $DB_HOST)"
+  systemctl disable --now postgresql 2>/dev/null || true
+  apt-get remove -y -qq 'postgresql*' >/dev/null
+  rm -f /opt/checks/check_postgres.sh
+fi
 
 # website
 cp /opt/demo/customer/site/index.html /var/www/html/index.html
 systemctl enable --now nginx
 
-# database
-systemctl enable --now postgresql
-sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname='app'" | grep -q 1 || \
-  sudo -u postgres psql -c "CREATE ROLE app LOGIN PASSWORD 'app'"
-sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname='app'" | grep -q 1 || \
-  sudo -u postgres createdb -O app app
-
-# positions of record, served by the account service on :3000
-sudo -u postgres psql -q -d app <<'SQL'
-CREATE TABLE IF NOT EXISTS positions (
-  symbol    text PRIMARY KEY,
-  quantity  integer NOT NULL,
-  avg_price numeric(10,2) NOT NULL,
-  opened    date NOT NULL
-);
-INSERT INTO positions (symbol, quantity, avg_price, opened) VALUES
-  ('KSTR', 1450, 171.40, '2026-03-11'),
-  ('ORBT', 3200,  58.05, '2026-05-02'),
-  ('NVAX',  480, 298.60, '2026-01-27'),
-  ('HLIO', 6100,  44.85, '2026-06-14'),
-  ('QBIT',  260, 517.30, '2026-04-08'),
-  ('MRDN', 9400,  27.90, '2025-11-19')
-ON CONFLICT (symbol) DO NOTHING;
-GRANT SELECT ON positions TO app;
-SQL
-
 # application
 mkdir -p /opt/app
 cp /opt/demo/customer/app/server.js /opt/app/server.js
 cp /opt/demo/customer/app/package.json /opt/app/package.json
-cp /opt/demo/customer/app/config.json /opt/app/config.json
+jq --arg h "$DB_HOST" '.db.host = $h' /opt/demo/customer/app/config.json > /opt/app/config.json
 (cd /opt/app && npm install --omit=dev --no-audit --no-fund >/dev/null)
 cp /opt/demo/customer/app/nodeapp.service /etc/systemd/system/nodeapp.service
 systemctl daemon-reload
-systemctl enable --now nodeapp
-
-# remote check helpers used by Icinga via ssh
-mkdir -p /opt/checks
-cp /opt/demo/customer/checks/check_postgres.sh /opt/checks/check_postgres.sh
-chmod +x /opt/checks/check_postgres.sh
+systemctl enable nodeapp
+systemctl restart nodeapp
 
 # fault injection scripts
 mkdir -p /opt/break
+rm -f /opt/break/break-db.sh   # moved to db1 with the database
 cp /opt/demo/customer/break/*.sh /opt/break/
 chmod +x /opt/break/*.sh
 
@@ -74,4 +58,4 @@ if [ -n "${AGENT_PUB:-}" ]; then
   chown -R backup:backup /home/backup
 fi
 
-echo "customer host ready"
+echo "customer host ready (db at $DB_HOST)"

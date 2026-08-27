@@ -1,0 +1,24 @@
+Database host for [[Cust1]]. Runs PostgreSQL 16 serving the <code>app</code> database that the cust1 account service reads.
+
+== Host ==
+* FQDN: db1.__DOMAIN__
+* OS: Ubuntu 24.04
+* PostgreSQL listens on 5432; the firewall admits connections only from inside the customer network.
+
+== Access policy ==
+This host is '''read-only for the ops agent'''. The agent's credential is the <code>dbops</code> account (OpenBao <code>secret/customers/cust1-db</code>):
+* <code>dbops</code> has '''no sudo''' and is not in the postgres group.
+* It can read: PostgreSQL logs (/var/log/postgresql, via group adm), configs (/etc/postgresql), unit state (<code>systemctl status postgresql</code>), journal, ports, disk.
+* It can not: restart or stop services, edit configs, run psql as postgres, or write anywhere that matters.
+
+Any change on this host is performed by the on-call engineer, as root over ssh. In an emergency an engineer may grant the agent the escalation credential <code>secret/customers/cust1-db-admin</code> (root) with <code>scripts/grant-access.sh cust1-db-admin</code>; revoke it after the incident.
+
+== Operational notes ==
+* Config: /etc/postgresql/16/main/ (port overrides may appear in postgresql.conf or conf.d/).
+* Logs: /var/log/postgresql/, and <code>journalctl -u postgresql</code>.
+* Health from the host itself: <code>pg_isready -h 127.0.0.1 -p 5432</code>.
+* The cust1 application expects port 5432; if postgres is up but the app is down, compare the listening port with the app's expectation.
+* Monitoring: Icinga checks postgres and disk here over ssh as dbops.
+
+== Escalation ==
+If the database is down or unreachable, the agent reports findings and the exact remediation needed, and hands over to the on-call engineer in the Incidents channel. The incident stays open until service is restored.

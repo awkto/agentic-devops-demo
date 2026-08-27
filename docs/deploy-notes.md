@@ -88,6 +88,28 @@ icinga2 2.16, icingadb 1.5, icingaweb2 2.14.
 - Mention and incident sessions run concurrently and do not share state; a
   channel summary asked mid-incident may describe a fix still in flight.
 
+## Database host (db1)
+
+cust1's PostgreSQL lives on its own droplet, db1, and the agent is deliberately
+weak there:
+
+- The vault secret `secret/customers/cust1-db` carries `tier: read-only`;
+  `ssh_exec` blocks any write-ish command for a tiered system before
+  connecting, whatever the incident mode. The tier check is generic - any
+  customer secret may carry one.
+- The credential itself is the `dbops` account: no sudoers entry, not in the
+  postgres group, `adm` for /var/log, an ACL for reading /etc/postgresql.
+  `customer/db/setup.sh` asserts `sudo -n true` fails for it and aborts the
+  deploy otherwise.
+- `secret/customers/cust1-db-admin` (root on db1) exists but is NOT granted to
+  the agent role. `scripts/grant-access.sh cust1-db-admin` grants it
+  mid-incident; revoke after.
+- Icinga's postgres and disk checks on db1 run over ssh as dbops - no root.
+- Firewall: tcp/5432 on db1 admits only cust1 and core (DO firewall,
+  source_droplet_ids). pg_hba additionally pins the `app` role to cust1's IP.
+- Deploy order matters: `deploy.sh` sets up db1 before cust1 because nodeapp
+  needs its database to come up healthy.
+
 ## MediaWiki
 
 - Installed with `php maintenance/run.php install` on first boot; pages seeded

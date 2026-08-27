@@ -9,3 +9,7 @@ output "agent_ip" {
 output "cust1_ip" {
   value = digitalocean_droplet.cust1.ipv4_address
 }
+
+output "db1_ip" {
+  value = digitalocean_droplet.db1.ipv4_address
+}

@@ -166,7 +166,11 @@ const defs = [
 
   {
     name: 'ssh_exec',
-    description: 'Run a shell command on a customer host over ssh. Credentials are fetched from OpenBao (secret/customers/<name>). In read-only mode only diagnostic commands are allowed.',
+    description:
+      'Run a shell command on a customer host over ssh. Credentials are fetched from OpenBao ' +
+      '(secret/customers/<name>). In read-only mode only diagnostic commands are allowed. Some ' +
+      'systems carry tier "read-only" on their vault secret: on those, write commands are always ' +
+      'blocked, whatever the incident mode.',
     shape: { customer: z.string().describe('customer name, e.g. cust1'), command: z.string() },
     run: async (incident, { customer, command }) => {
       if (incident.state.mode === 'read-only' && readOnlyViolation(command)) {
@@ -178,6 +182,15 @@ const defs = [
       } catch (err) {
         if (err instanceof BaoDenied) return deniedMessage(`customers/${customer}`);
         throw err;
+      }
+      // Per-system tier, independent of the incident mode: a read-only system
+      // never accepts a write from this agent, even mid read-write incident.
+      if (creds.tier === 'read-only' && readOnlyViolation(command)) {
+        return (
+          `BLOCKED: "${customer}" is a read-only system for this agent. Diagnostic commands are ` +
+          'allowed; this command changes state. Report what needs doing and ask an engineer to ' +
+          'perform it or to grant write access. Do not attempt the change from another host.'
+        );
       }
       const keyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-key-'));
       const keyFile = path.join(keyDir, 'id');

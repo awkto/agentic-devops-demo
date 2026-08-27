@@ -1,5 +1,6 @@
 #!/bin/bash
-# Scenario 4: postgres moves to a non-default port, the app loses its database.
+# Variant: postgres moves to a non-default port. Same restricted-host story,
+# subtler diagnosis (unit healthy, port wrong).
 conf=$(ls /etc/postgresql/*/main/postgresql.conf | head -1)
 grep -q "^port = 5433" "$conf" || echo "port = 5433" >> "$conf"
 systemctl restart postgresql

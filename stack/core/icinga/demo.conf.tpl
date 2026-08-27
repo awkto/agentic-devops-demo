@@ -54,12 +54,34 @@ object Service "disk" {
   max_check_attempts = 2
 }
 
+// cust1's database lives on db1. Checks there run over ssh as dbops, the
+// same unprivileged account the AI agent holds - no root needed to look.
+object Host "db1" {
+  import "generic-host"
+  address = "${DB1_IP}"
+  vars.customer = "cust1"
+  vars.fqdn = "db1.${DOMAIN}"
+}
+
 object Service "postgres" {
-  host_name = "cust1"
+  host_name = "db1"
   import "generic-service"
   check_command = "by_ssh"
   vars.by_ssh_command = [ "/opt/checks/check_postgres.sh" ]
-  vars.by_ssh_logname = "root"
+  vars.by_ssh_logname = "dbops"
+  vars.by_ssh_identity = "/data/ssh/agent_ed25519"
+  vars.by_ssh_options = [ "StrictHostKeyChecking=accept-new", "UserKnownHostsFile=/data/ssh/known_hosts" ]
+  check_interval = 30s
+  retry_interval = 15s
+  max_check_attempts = 2
+}
+
+object Service "disk" {
+  host_name = "db1"
+  import "generic-service"
+  check_command = "by_ssh"
+  vars.by_ssh_command = [ "/usr/lib/nagios/plugins/check_disk", "-w", "15%", "-c", "8%", "-p", "/" ]
+  vars.by_ssh_logname = "dbops"
   vars.by_ssh_identity = "/data/ssh/agent_ed25519"
   vars.by_ssh_options = [ "StrictHostKeyChecking=accept-new", "UserKnownHostsFile=/data/ssh/known_hosts" ]
   check_interval = 60s
@@ -90,5 +112,5 @@ apply Notification "agent" to Service {
   users = [ "agent" ]
   types = [ Problem, Recovery ]
   interval = 0
-  assign where host.name == "cust1"
+  assign where host.vars.customer == "cust1"
 }
