@@ -38,6 +38,26 @@ export async function post(message, rootId) {
   });
 }
 
+// Every post in a thread, oldest first, with usernames resolved. Used when an
+// engineer mentions the agent in a thread the harness has no session for.
+export async function thread(rootId, limit = 40) {
+  const data = await api(`/posts/${rootId}/thread?perPage=200`);
+  const posts = Object.values(data.posts || {})
+    .filter((p) => p.delete_at === 0)
+    .sort((a, b) => a.create_at - b.create_at)
+    .slice(-limit);
+  const out = [];
+  for (const p of posts) {
+    out.push({
+      at: new Date(p.create_at).toISOString(),
+      author: p.user_id === botUserId ? 'agent (you)' : await userName(p.user_id),
+      message: (p.message || '').slice(0, 1500),
+      is_root: p.id === rootId,
+    });
+  }
+  return out;
+}
+
 export function isSelf(userId) {
   return userId === botUserId;
 }

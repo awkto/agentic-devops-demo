@@ -8,6 +8,8 @@ import path from 'path';
 import { config } from './config.js';
 import * as zammad from './zammad.js';
 import * as icinga from './icinga.js';
+import * as alerts from './alerts.js';
+import * as activity from './activity.js';
 
 const execFileP = promisify(execFile);
 
@@ -89,12 +91,31 @@ async function baoList(secretPath) {
 const defs = [
   {
     name: 'post_update',
-    description: 'Post a short status update to the incident thread in Mattermost. Use this before and after each significant step so engineers can follow along.',
-    shape: { message: z.string() },
-    run: async (incident, { message }) => {
-      await incident.postUpdate(message);
-      return 'posted';
+    description:
+      'Post a short status update to the incident thread in Mattermost. Use this before and after each ' +
+      'significant step so engineers can follow along. Pass thread_id to post into a different thread ' +
+      'instead - use that to tell an engineer in an earlier thread that their request has caused an alert.',
+    shape: { message: z.string(), thread_id: z.string().optional() },
+    run: async (incident, { message, thread_id }) => {
+      await incident.postUpdate(message, thread_id);
+      return thread_id ? `posted to thread ${thread_id}` : 'posted';
     },
+  },
+
+  {
+    name: 'recent_agent_activity',
+    description:
+      'What you yourself have done recently in other threads (default last 4 hours): sessions opened and ' +
+      'updates posted, with their thread ids. Each incident runs in its own session with its own memory, ' +
+      'so this is the only way to see that an outage you are looking at may be work an engineer asked you ' +
+      'for a few minutes ago in another thread. Check it before treating an alert as an unexplained fault.',
+    shape: { hours: z.number().optional(), limit: z.number().optional() },
+    run: async (incident, { hours, limit }) =>
+      JSON.stringify(activity.recent({
+        hours: hours ?? 4,
+        limit: limit ?? 60,
+        excludeThread: incident.rootId || undefined,
+      })),
   },
 
   {
@@ -193,6 +214,22 @@ const defs = [
     description: 'Current state of all monitored services: state, acknowledged, in_downtime, since, last output.',
     shape: {},
     run: async () => JSON.stringify(await icinga.serviceStatus()),
+  },
+
+  {
+    name: 'icinga_alert_history',
+    description:
+      'Past alerts from monitoring: every PROBLEM and RECOVERY notification in the last N hours ' +
+      '(default 24), newest first, plus per service how many times it broke, when it last broke ' +
+      'and recovered, and how long each outage lasted. Optionally filter by service, e.g. "cust1/website". ' +
+      'Use it to tell a first failure apart from a repeat.',
+    shape: {
+      service: z.string().optional(),
+      hours: z.number().optional(),
+      limit: z.number().optional(),
+    },
+    run: async (_incident, { service, hours, limit }) =>
+      JSON.stringify(alerts.history({ service, hours: hours ?? 24, limit: limit ?? 50 })),
   },
 
   {

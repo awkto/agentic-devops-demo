@@ -3,6 +3,7 @@ import fs from 'fs';
 import { config } from './config.js';
 import * as mm from './mattermost.js';
 import { Incident } from './incident.js';
+import * as alerts from './alerts.js';
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -66,6 +67,7 @@ app.post('/webhook/icinga', auth, (req, res) => {
   const b = req.body || {};
   const key = `icinga:${b.host}:${b.service}`;
   console.log(`icinga webhook: ${key} type=${b.type} state=${b.state}`);
+  alerts.record(b);
   if (b.type === 'RECOVERY') {
     const inc = incidents.get(key);
     if (inc && !inc.done) {
@@ -148,12 +150,19 @@ const main = async () => {
         });
         return;
       }
-      // unknown thread: only react if explicitly mentioned
+      // unknown thread - one the harness has no session for, e.g. after a
+      // restart or a thread an engineer started. React only if mentioned, and
+      // read the thread from Mattermost so the reply has its context.
       if (MENTION.test(post.message)) {
+        const transcript = await mm.thread(post.root_id).catch((err) => {
+          console.error('thread read failed', err.message);
+          return null;
+        });
         launch(`mention:${post.id}`, {
           source: 'mention',
           username,
           message: post.message,
+          transcript,
         }, { rootId: post.root_id });
       }
       return;

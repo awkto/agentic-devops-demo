@@ -5,6 +5,7 @@ import * as zammad from './zammad.js';
 import * as sessions from './sessions.js';
 import { buildOpsServer, allowedToolNames, openaiToolSchemas, runTool } from './tools.js';
 import { runTurn } from './oaichat.js';
+import * as activity from './activity.js';
 import { systemPrompt, incidentPrompt, followupPrompt, mentionPrompt } from './prompts.js';
 
 const CLOSE = Symbol('close');
@@ -28,8 +29,11 @@ export class Incident {
     this.q = null;
   }
 
-  async postUpdate(message) {
-    await mm.post(message, this.rootId);
+  async postUpdate(message, threadId) {
+    const root = threadId || this.rootId;
+    const posted = await mm.post(message, root);
+    activity.record({ kind: 'post', key: this.key, threadId: root || posted.id, text: message });
+    return posted;
   }
 
   enqueue(item) {
@@ -109,7 +113,7 @@ export class Incident {
       return followupPrompt(t.username, t.message, this.state.mode);
     }
     if (t.source === 'mention') {
-      return mentionPrompt(t.username, t.message, this.state.mode);
+      return mentionPrompt(t.username, t.message, this.state.mode, t.transcript);
     }
 
     const title = t.source === 'icinga'
@@ -121,6 +125,12 @@ export class Incident {
       `Reply here to guide me ("stop", "read-only", "read-write", or free text).`
     );
     this.rootId = root.id;
+    activity.record({
+      kind: 'incident-opened',
+      key: this.key,
+      threadId: this.rootId,
+      text: `${title} (source ${t.source})`,
+    });
 
     let ticketInfo;
     if (t.source === 'icinga') {

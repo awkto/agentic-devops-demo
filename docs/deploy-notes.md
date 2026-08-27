@@ -153,3 +153,15 @@ icinga2 2.16, icingadb 1.5, icingaweb2 2.14.
 - Still local-only: MediaWiki (needs PluggableAuth+OIDC extensions baked into
   the image) and Icinga Web 2 (needs an oauth2-proxy in front with external
   auth). Tracked in issue #6.
+
+- The harness keeps two append-only logs next to the sessions directory:
+  `/opt/agent/alerts.jsonl` (every Icinga notification it received) and
+  `/opt/agent/activity.jsonl` (incidents opened and updates posted, with thread
+  ids). They back `icinga_alert_history` and `recent_agent_activity`, survive
+  restarts, and are trimmed at 5000/3000 lines. Both are owned by the `agentd`
+  service user: if you rsync `/opt/demo/agent/` to `/opt/agent/` by hand, re-run
+  `chown -R agentd:agentd /opt/agent` as bootstrap.sh does, or the harness
+  silently fails to write state.json and the logs.
+- Resetting between demo runs: deleting `sessions/*.json` and `state.json` is
+  enough. Leaving the two jsonl logs in place is deliberate - the agent can then
+  answer "has this happened before today" across takes.

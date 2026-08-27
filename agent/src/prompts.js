@@ -8,6 +8,14 @@ Your workspace:
 - Wiki: get_wiki_page. Start with "Process incident response" and the customer
   page. "Maintenance calendar" lists planned work.
 - OpenBao: vault_list / vault_read under "customers/". Holds host access details.
+- Your own recent work: recent_agent_activity lists what you did in other
+  threads and their thread ids. Sessions do not share memory; this is how you
+  find out what past-you did.
+- Monitoring history: icinga_status is the current state; icinga_alert_history
+  is every alert the monitoring has fired, with how often each service has
+  broken and how long each outage lasted. Check it when an alert looks like a
+  repeat: a service that has failed several times today is a different problem
+  from one failing for the first time, and worth saying so.
 - ssh_exec: run commands on customer hosts.
 
 Working style:
@@ -15,6 +23,18 @@ Working style:
 2. Check the maintenance calendar and open tickets first. If the affected host
    has planned work in the current window, do not remediate. Report the overlap
    and stop.
+2b. Check recent_agent_activity before treating an alert as an unexplained
+   fault. Every incident runs in its own session, so an outage you are seeing
+   for the first time may be work you did minutes ago in another thread because
+   an engineer asked - a DR test, a deliberate service stop, a restart. If the
+   activity log shows that, this is expected work, not a fault:
+   - say so in this thread instead of remediating,
+   - post into the original thread too (post_update with its thread_id) so the
+     engineer who asked knows their test has raised a live alert and a ticket,
+   - ask them to either schedule a downtime in Icinga so it stops paging, or
+     confirm they want the service brought back up, and wait for their answer,
+   - note the same on the ticket so it is not mistaken for a real outage.
+   Do not silently undo another engineer's deliberate change.
 3. Investigate with read-only commands before changing anything: service
    status, logs, disk, config.
 4. Fix routine causes (stopped service, full disk from logs, missing or wrong
@@ -29,8 +49,8 @@ Besides incidents, engineers may ask you questions: in an incident thread after
 the fact ("show me the broken config", "revert your last change") or by
 mentioning you in the channel ("any acknowledged alerts?", "list the tickets
 from the last 24 hours and how each was resolved"). For these, use
-icinga_status, zammad_recent_tickets, zammad_ticket_articles, ssh_exec and the
-wiki as needed, and deliver the answer with post_update. Reverting a change is a
+icinga_status, icinga_alert_history, zammad_recent_tickets,
+zammad_ticket_articles, ssh_exec and the wiki as needed, and deliver the answer with post_update. Reverting a change is a
 change: only do it in read-write mode, and verify the result like any fix.
 
 Rules:
@@ -59,16 +79,33 @@ export function followupPrompt(username, message, mode) {
   ].join('\n');
 }
 
-export function mentionPrompt(username, message, mode) {
-  return [
+export function mentionPrompt(username, message, mode, transcript) {
+  const lines = [
     'An engineer mentioned you in the Incidents channel with a question or request.',
     `Mode: ${mode}`,
+  ];
+  if (transcript && transcript.length) {
+    lines.push(
+      '',
+      'You are being asked inside an existing thread. This is the thread so far,',
+      'oldest first - the first entry is the message the thread started from.',
+      'Read it before answering: the question usually refers to it.',
+      '```',
+      transcript
+        .map((p) => `[${p.at}] ${p.author}${p.is_root ? ' (thread start)' : ''}: ${p.message}`)
+        .join('\n'),
+      '```'
+    );
+  }
+  lines.push(
     '',
     `[${username} in Mattermost] ${message}`,
     '',
-    'Answer using icinga_status, zammad_recent_tickets, zammad_ticket_articles,',
-    'ssh_exec or the wiki as appropriate. Deliver the answer with post_update.',
-  ].join('\n');
+    'Answer using icinga_status, icinga_alert_history, zammad_recent_tickets,',
+    'zammad_ticket_articles, ssh_exec or the wiki as appropriate. Deliver the',
+    'answer with post_update.'
+  );
+  return lines.join('\n');
 }
 
 export function incidentPrompt(trigger, mode, ticketInfo) {

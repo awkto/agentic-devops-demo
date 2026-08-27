@@ -137,6 +137,23 @@ account (`customers/cust1-backups`) exists but is not granted.
 - Clean up: `scripts/grant-access.sh cust1-backups revoke`. Grants also reset
   on every redeploy.
 
+## Scenario 8: work the agent did itself (cross-session awareness)
+
+Shows that separate sessions do not mean separate reality.
+
+- Do: in the channel, `@agent we are running a DR test on cust1. Please stop
+  nginx on the customer host now and leave it down until I say otherwise.`
+- Expect: it stops nginx and warns you that this will raise an alert.
+- Then: Icinga fires ~30 s later and opens a *new* incident thread. The new
+  session checks `recent_agent_activity`, recognises the outage as the DR test
+  it performed in the other thread, **does not remediate**, posts into both
+  threads, asks you to either schedule an Icinga downtime or confirm the
+  restart, and notes it on the ticket.
+- Finish: reply `DR test complete, bring nginx back up and close the ticket.`
+
+Timings from the 27 Aug bench run: stop at 12:31:02, alert 12:31:34, correlation
+posted 12:31:40, restored and ticket closed by 12:32:34.
+
 ## SSO logins (issue #6, partial)
 
 Keycloak (realm `demo`, users sysadmin/alice/bob, demo-users password) now
