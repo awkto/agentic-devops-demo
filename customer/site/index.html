@@ -2,15 +2,1005 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Northwind Logistics</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kestrel Markets - Trading Desk</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%230a0e13'/%3E%3Crect x='6' y='18' width='4' height='8' fill='%231fc07c'/%3E%3Crect x='14' y='12' width='4' height='14' fill='%23f0a94b'/%3E%3Crect x='22' y='6' width='4' height='20' fill='%231fc07c'/%3E%3C/svg%3E">
 <style>
-  body { font-family: sans-serif; max-width: 40rem; margin: 4rem auto; padding: 0 1rem; }
-  h1 { border-bottom: 2px solid #333; padding-bottom: .5rem; }
+  :root {
+    --bg: #0a0e13;
+    --panel: #10161f;
+    --panel-2: #141c27;
+    --line: #1e2a37;
+    --text: #d8e2ec;
+    --dim: #6d8096;
+    --up: #1fc07c;
+    --down: #ff5a63;
+    --accent: #f0a94b;
+    --blue: #4aa3e0;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body { height: 100%; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 13px/1.45 "SF Mono", "JetBrains Mono", "DejaVu Sans Mono", Menlo, Consolas, monospace;
+    overflow-x: hidden;
+  }
+
+  /* ---------- top bar ---------- */
+
+  header {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 10px 18px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+    flex-wrap: wrap;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+  }
+
+  .brand .mark {
+    width: 22px;
+    height: 22px;
+    border: 1px solid var(--accent);
+    border-radius: 2px;
+    position: relative;
+  }
+
+  .brand .mark::after {
+    content: "";
+    position: absolute;
+    left: 3px;
+    right: 3px;
+    bottom: 4px;
+    height: 9px;
+    background:
+      linear-gradient(to top, var(--accent) 0 3px, transparent 3px) 0 100%/3px 9px repeat-x,
+      linear-gradient(to top, var(--accent) 0 6px, transparent 6px) 5px 100%/3px 9px no-repeat,
+      linear-gradient(to top, var(--accent) 0 9px, transparent 9px) 10px 100%/3px 9px no-repeat;
+  }
+
+  .brand small {
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: .18em;
+    color: var(--dim);
+  }
+
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 3px 10px;
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    font-size: 11px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--dim);
+    background: var(--panel-2);
+  }
+
+  .pill .led {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--up);
+    box-shadow: 0 0 8px var(--up);
+    animation: pulse 2.4s ease-in-out infinite;
+  }
+
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+
+  header .spacer { flex: 1; }
+
+  .stat {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 108px;
+  }
+
+  .stat .k {
+    font-size: 10px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--dim);
+  }
+
+  .stat .v { font-size: 15px; font-variant-numeric: tabular-nums; }
+
+  /* ---------- ticker tape ---------- */
+
+  .tape {
+    display: flex;
+    overflow: hidden;
+    background: var(--panel-2);
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+  }
+
+  .tape-track {
+    display: inline-flex;
+    gap: 34px;
+    padding: 7px 0;
+    animation: marquee 46s linear infinite;
+    will-change: transform;
+  }
+
+  @keyframes marquee {
+    from { transform: translateX(0); }
+    to { transform: translateX(-50%); }
+  }
+
+  .tape:hover .tape-track { animation-play-state: paused; }
+
+  .tick {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .tick .sym { color: var(--text); letter-spacing: .06em; }
+  .tick .px { color: var(--dim); }
+  .tick .ch.up { color: var(--up); }
+  .tick .ch.down { color: var(--down); }
+
+  .flash-up { animation: flashUp .5s ease-out; }
+  .flash-down { animation: flashDown .5s ease-out; }
+
+  @keyframes flashUp { from { background: rgba(31, 192, 124, .28); } to { background: transparent; } }
+  @keyframes flashDown { from { background: rgba(255, 90, 99, .28); } to { background: transparent; } }
+
+  /* ---------- layout ---------- */
+
+  main {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 320px;
+    gap: 12px;
+    padding: 12px;
+    align-items: start;
+  }
+
+  .col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    min-width: 0;
+  }
+
+  .card > h2 {
+    margin: 0;
+    padding: 9px 14px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--dim);
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .card > h2 em {
+    font-style: normal;
+    color: var(--text);
+    letter-spacing: .04em;
+  }
+
+  /* ---------- chart ---------- */
+
+  .chart-head {
+    display: flex;
+    align-items: flex-end;
+    gap: 22px;
+    padding: 12px 14px 6px;
+    flex-wrap: wrap;
+  }
+
+  .chart-head .price {
+    font-size: 30px;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -.01em;
+  }
+
+  .chart-head .delta { font-size: 13px; font-variant-numeric: tabular-nums; }
+  .up { color: var(--up); }
+  .down { color: var(--down); }
+
+  .syms { display: flex; gap: 4px; margin-left: auto; flex-wrap: wrap; }
+
+  .syms button {
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    color: var(--dim);
+    border-radius: 2px;
+    padding: 4px 9px;
+    font: inherit;
+    font-size: 11px;
+    letter-spacing: .08em;
+    cursor: pointer;
+  }
+
+  .syms button:hover { color: var(--text); border-color: var(--dim); }
+  .syms button[aria-pressed="true"] { color: var(--bg); background: var(--accent); border-color: var(--accent); }
+
+  .canvas-wrap { position: relative; padding: 0 6px 10px; }
+  canvas { display: block; width: 100%; }
+
+  /* ---------- book ---------- */
+
+  .book { padding: 6px 0 10px; font-variant-numeric: tabular-nums; }
+
+  .book-row {
+    display: grid;
+    grid-template-columns: 1fr 78px 62px;
+    gap: 8px;
+    padding: 2px 14px;
+    position: relative;
+    font-size: 12px;
+  }
+
+  .book-row .depth {
+    position: absolute;
+    top: 1px;
+    bottom: 1px;
+    right: 0;
+    opacity: .16;
+  }
+
+  .book-row.ask .depth { background: var(--down); }
+  .book-row.bid .depth { background: var(--up); }
+  .book-row span { position: relative; }
+  .book-row .qty { color: var(--dim); }
+  .book-row.ask .px { color: var(--down); }
+  .book-row.bid .px { color: var(--up); }
+
+  .spread {
+    display: flex;
+    justify-content: space-between;
+    padding: 7px 14px;
+    margin: 5px 0;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    background: var(--panel-2);
+    font-size: 11px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--dim);
+  }
+
+  /* ---------- trades ---------- */
+
+  .trades { padding: 6px 0 8px; font-variant-numeric: tabular-nums; }
+
+  .trade-row {
+    display: grid;
+    grid-template-columns: 62px 1fr 70px;
+    gap: 8px;
+    padding: 2px 14px;
+    font-size: 12px;
+    animation: slideIn .35s ease-out;
+  }
+
+  @keyframes slideIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+
+  .trade-row .t { color: var(--dim); }
+  .trade-row .q { text-align: right; color: var(--dim); }
+
+  /* ---------- market grid ---------- */
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 1px;
+    background: var(--line);
+  }
+
+  .cell { background: var(--panel); padding: 11px 13px; display: flex; flex-direction: column; gap: 5px; }
+  .cell .name { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); }
+  .cell .val { font-size: 17px; font-variant-numeric: tabular-nums; }
+  .cell .chg { font-size: 11px; font-variant-numeric: tabular-nums; }
+  .cell canvas { height: 30px; }
+
+  /* ---------- portfolio ---------- */
+
+  .pf { padding: 4px 0 10px; font-variant-numeric: tabular-nums; }
+
+  .pf-row {
+    display: grid;
+    grid-template-columns: 58px 1fr 78px 74px;
+    gap: 8px;
+    padding: 5px 14px;
+    font-size: 12px;
+    border-top: 1px solid var(--line);
+  }
+
+  .pf-row:first-child { border-top: 0; }
+  .pf-row .qty, .pf-row .avg { color: var(--dim); }
+  .pf-row .pl { text-align: right; }
+
+  .pf-head {
+    padding: 5px 14px;
+    font-size: 10px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--dim);
+    display: grid;
+    grid-template-columns: 58px 1fr 78px 74px;
+    gap: 8px;
+  }
+
+  .pf-state {
+    padding: 16px 14px;
+    color: var(--dim);
+    font-size: 12px;
+    line-height: 1.7;
+  }
+
+  .pf-state strong { color: var(--down); font-weight: 600; display: block; margin-bottom: 4px; letter-spacing: .06em; }
+
+  .news { padding: 4px 0 10px; }
+
+  .news-row {
+    display: grid;
+    grid-template-columns: 66px 54px 1fr;
+    gap: 10px;
+    padding: 6px 14px;
+    font-size: 12px;
+    border-top: 1px solid var(--line);
+    animation: slideIn .35s ease-out;
+  }
+
+  .news-row:first-child { border-top: 0; }
+  .news-row .t { color: var(--dim); font-variant-numeric: tabular-nums; }
+  .news-row .s { letter-spacing: .06em; }
+  .news-row .h { color: var(--text); }
+  .news-row.macro .s { color: var(--blue); }
+
+  footer {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    padding: 9px 18px 26px;
+    color: var(--dim);
+    font-size: 11px;
+    letter-spacing: .04em;
+  }
+
+  footer .sep { color: var(--line); }
+
+  @media (max-width: 900px) {
+    main { grid-template-columns: minmax(0, 1fr); }
+    .chart-head .price { font-size: 24px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tape-track { animation: none; }
+    .trade-row { animation: none; }
+    .pill .led { animation: none; }
+  }
 </style>
 </head>
 <body>
-<h1>Northwind Logistics</h1>
-<p>Freight forwarding and warehousing since 1987.</p>
-<p>Customer portal: <a href="http://cust1.gobyl.cc:3000/">status dashboard</a></p>
+
+<header>
+  <div class="brand"><span class="mark"></span> Kestrel Markets <small>Trading Desk</small></div>
+  <span class="pill"><span class="led"></span> <span id="session">Market open</span></span>
+  <span class="pill" id="clock">--:--:--</span>
+  <div class="spacer"></div>
+  <div class="stat"><span class="k">Account equity</span><span class="v" id="equity">-</span></div>
+  <div class="stat"><span class="k">Day P&amp;L</span><span class="v" id="daypl">-</span></div>
+  <div class="stat"><span class="k">Buying power</span><span class="v" id="power">-</span></div>
+</header>
+
+<div class="tape"><div class="tape-track" id="tape"></div></div>
+
+<main>
+  <div class="col">
+
+    <section class="card">
+      <div class="chart-head">
+        <div>
+          <div class="price" id="lastPrice">-</div>
+          <div class="delta" id="lastDelta">-</div>
+        </div>
+        <div class="stat"><span class="k">Day high</span><span class="v" id="dayHigh">-</span></div>
+        <div class="stat"><span class="k">Day low</span><span class="v" id="dayLow">-</span></div>
+        <div class="stat"><span class="k">Volume</span><span class="v" id="dayVol">-</span></div>
+        <div class="syms" id="syms"></div>
+      </div>
+      <div class="canvas-wrap"><canvas id="chart" height="360"></canvas></div>
+    </section>
+
+    <section class="card">
+      <h2>Markets <em id="marketsBreadth">-</em></h2>
+      <div class="grid" id="indices"></div>
+    </section>
+
+    <section class="card">
+      <h2>Newswire <em>Kestrel research</em></h2>
+      <div class="news" id="news"></div>
+    </section>
+
+  </div>
+
+  <div class="col">
+
+    <section class="card">
+      <h2>Order book <em id="bookSym">-</em></h2>
+      <div class="book" id="book"></div>
+    </section>
+
+    <section class="card">
+      <h2>Time and sales</h2>
+      <div class="trades" id="trades"></div>
+    </section>
+
+    <section class="card">
+      <h2>Portfolio <em id="pfSource">-</em></h2>
+      <div class="pf" id="portfolio"><div class="pf-state">Loading positions...</div></div>
+    </section>
+
+  </div>
+</main>
+
+<footer>
+  <span>Kestrel Markets Pty Ltd</span>
+  <span class="sep">|</span>
+  <span id="feed">Feed: connected</span>
+  <span class="sep">|</span>
+  <span id="latency">Latency: -</span>
+  <span class="sep">|</span>
+  <span>Prices are simulated for demonstration and are not investment advice.</span>
+</footer>
+
+<script>
+(function () {
+  "use strict";
+
+  var SYMBOLS = [
+    { sym: "KSTR", name: "Kestrel Group",      px: 184.20, vol: 0.0016 },
+    { sym: "ORBT", name: "Orbital Freight",    px:  61.85, vol: 0.0022 },
+    { sym: "NVAX", name: "Novaxis Energy",     px: 312.40, vol: 0.0019 },
+    { sym: "HLIO", name: "Helio Systems",      px:  47.12, vol: 0.0031 },
+    { sym: "ARGO", name: "Argo Minerals",      px:  22.68, vol: 0.0027 },
+    { sym: "VNTA", name: "Ventana Health",     px: 138.95, vol: 0.0014 },
+    { sym: "QBIT", name: "Qubit Compute",      px: 502.10, vol: 0.0038 },
+    { sym: "TDRA", name: "Tundra Logistics",   px:  88.30, vol: 0.0018 },
+    { sym: "MRDN", name: "Meridian Bank",      px:  29.44, vol: 0.0012 },
+    { sym: "SOLA", name: "Solara Materials",   px:  73.55, vol: 0.0024 }
+  ];
+
+  var INDICES = [
+    { name: "KX 200",     val: 7418.60, vol: 0.0006 },
+    { name: "Tech 100",   val: 18342.15, vol: 0.0009 },
+    { name: "Gold spot",  val: 2431.80, vol: 0.0005, unit: "$" },
+    { name: "Brent",      val: 79.42, vol: 0.0011, unit: "$" },
+    { name: "AUD/USD",    val: 0.6612, vol: 0.0004, dp: 4 },
+    { name: "10y yield",  val: 4.284, vol: 0.0008, dp: 3, unit: "%" }
+  ];
+
+  var CANDLE_MS = 3000;
+  var TICK_MS = 130;
+  var MAX_CANDLES = 90;
+
+  function rnd() { return Math.random(); }
+  function gauss() { return (rnd() + rnd() + rnd() + rnd() - 2) / 1.2; }
+  function fmt(n, dp) { return n.toLocaleString("en-AU", { minimumFractionDigits: dp === undefined ? 2 : dp, maximumFractionDigits: dp === undefined ? 2 : dp }); }
+  function money(n) { return "$" + fmt(n); }
+  function pct(n) { return (n >= 0 ? "+" : "") + fmt(n) + "%"; }
+
+  /* ---------- market state ---------- */
+
+  SYMBOLS.forEach(function (s) {
+    s.open = s.px;
+    s.prev = s.px;
+    s.high = s.px;
+    s.low = s.px;
+    s.volume = Math.floor(180000 + rnd() * 900000);
+    s.candles = [];
+    var p = s.px * (1 - (rnd() * 0.05 - 0.02));
+    for (var i = 0; i < MAX_CANDLES; i++) {
+      var o = p;
+      var drift = gauss() * s.vol * p * 2.4;
+      var c = Math.max(0.5, o + drift);
+      var hi = Math.max(o, c) * (1 + rnd() * s.vol);
+      var lo = Math.min(o, c) * (1 - rnd() * s.vol);
+      s.candles.push({ o: o, h: hi, l: lo, c: c, v: Math.floor(4000 + rnd() * 26000) });
+      p = c;
+    }
+    s.px = p;
+    s.open = s.candles[0].o;
+    s.high = Math.max.apply(null, s.candles.map(function (k) { return k.h; }));
+    s.low = Math.min.apply(null, s.candles.map(function (k) { return k.l; }));
+  });
+
+  var active = SYMBOLS[0];
+
+  function step(s) {
+    var move = gauss() * s.vol * s.px;
+    s.prev = s.px;
+    s.px = Math.max(0.5, s.px + move);
+    if (s.px > s.high) s.high = s.px;
+    if (s.px < s.low) s.low = s.px;
+    s.volume += Math.floor(rnd() * 900);
+    var last = s.candles[s.candles.length - 1];
+    last.c = s.px;
+    if (s.px > last.h) last.h = s.px;
+    if (s.px < last.l) last.l = s.px;
+    last.v += Math.floor(rnd() * 400);
+  }
+
+  function newCandle(s) {
+    s.candles.push({ o: s.px, h: s.px, l: s.px, c: s.px, v: Math.floor(1000 + rnd() * 9000) });
+    if (s.candles.length > MAX_CANDLES) s.candles.shift();
+  }
+
+  function changePct(s) { return ((s.px - s.open) / s.open) * 100; }
+
+  /* ---------- ticker tape ---------- */
+
+  var tape = document.getElementById("tape");
+  var tapeCells = [];
+
+  function buildTape() {
+    for (var pass = 0; pass < 2; pass++) {
+      SYMBOLS.forEach(function (s) {
+        var el = document.createElement("span");
+        el.className = "tick";
+        el.innerHTML = '<span class="sym">' + s.sym + '</span><span class="px"></span><span class="ch"></span>';
+        tape.appendChild(el);
+        tapeCells.push({ s: s, px: el.querySelector(".px"), ch: el.querySelector(".ch") });
+      });
+    }
+  }
+
+  function paintTape() {
+    tapeCells.forEach(function (c) {
+      var ch = changePct(c.s);
+      c.px.textContent = fmt(c.s.px);
+      c.ch.textContent = pct(ch);
+      c.ch.className = "ch " + (ch >= 0 ? "up" : "down");
+    });
+  }
+
+  /* ---------- symbol buttons ---------- */
+
+  var symsEl = document.getElementById("syms");
+
+  function buildSyms() {
+    SYMBOLS.slice(0, 6).forEach(function (s) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.textContent = s.sym;
+      b.setAttribute("aria-pressed", s === active ? "true" : "false");
+      b.addEventListener("click", function () {
+        active = s;
+        Array.prototype.forEach.call(symsEl.children, function (o) {
+          o.setAttribute("aria-pressed", o.textContent === s.sym ? "true" : "false");
+        });
+        document.getElementById("bookSym").textContent = s.sym;
+        paintHead();
+        drawChart();
+      });
+      symsEl.appendChild(b);
+    });
+  }
+
+  /* ---------- chart ---------- */
+
+  var chart = document.getElementById("chart");
+  var ctx = chart.getContext("2d");
+
+  function sizeCanvas(c, cssHeight) {
+    var dpr = window.devicePixelRatio || 1;
+    var w = c.clientWidth || 600;
+    c.width = Math.round(w * dpr);
+    c.height = Math.round(cssHeight * dpr);
+    c.style.height = cssHeight + "px";
+    var g = c.getContext("2d");
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return { w: w, h: cssHeight, g: g };
+  }
+
+  function sma(candles, n) {
+    var out = [];
+    for (var i = 0; i < candles.length; i++) {
+      if (i < n - 1) { out.push(null); continue; }
+      var sum = 0;
+      for (var j = i - n + 1; j <= i; j++) sum += candles[j].c;
+      out.push(sum / n);
+    }
+    return out;
+  }
+
+  function drawChart() {
+    var dim = sizeCanvas(chart, 360);
+    var g = dim.g, W = dim.w, H = dim.h;
+    var padL = 8, padR = 62, padT = 10;
+    var volH = 58, gap = 12;
+    var priceH = H - volH - gap - padT - 18;
+    var cs = active.candles;
+    var hi = -Infinity, lo = Infinity, maxV = 0;
+    cs.forEach(function (k) { if (k.h > hi) hi = k.h; if (k.l < lo) lo = k.l; if (k.v > maxV) maxV = k.v; });
+    var span = (hi - lo) || 1;
+    hi += span * 0.06; lo -= span * 0.06; span = hi - lo;
+
+    g.clearRect(0, 0, W, H);
+
+    var plotW = W - padL - padR;
+    var x = function (i) { return padL + (i + 0.5) * (plotW / cs.length); };
+    var y = function (p) { return padT + priceH - ((p - lo) / span) * priceH; };
+
+    /* grid + axis */
+    g.strokeStyle = "#1a2431";
+    g.fillStyle = "#5c6f83";
+    g.lineWidth = 1;
+    g.font = "10px ui-monospace, monospace";
+    g.textAlign = "left";
+    for (var r = 0; r <= 4; r++) {
+      var py = padT + (priceH / 4) * r;
+      g.beginPath();
+      g.moveTo(padL, Math.round(py) + 0.5);
+      g.lineTo(padL + plotW, Math.round(py) + 0.5);
+      g.stroke();
+      g.fillText(fmt(hi - (span / 4) * r), padL + plotW + 8, py + 3);
+    }
+
+    /* candles */
+    var cw = Math.max(2, (plotW / cs.length) * 0.62);
+    cs.forEach(function (k, i) {
+      var up = k.c >= k.o;
+      var col = up ? "#1fc07c" : "#ff5a63";
+      g.strokeStyle = col;
+      g.fillStyle = col;
+      var cx = x(i);
+      g.beginPath();
+      g.moveTo(Math.round(cx) + 0.5, y(k.h));
+      g.lineTo(Math.round(cx) + 0.5, y(k.l));
+      g.stroke();
+      var top = y(Math.max(k.o, k.c));
+      var bot = y(Math.min(k.o, k.c));
+      g.fillRect(cx - cw / 2, top, cw, Math.max(1, bot - top));
+    });
+
+    /* moving average */
+    var ma = sma(cs, 12);
+    g.strokeStyle = "#f0a94b";
+    g.lineWidth = 1.4;
+    g.beginPath();
+    var started = false;
+    ma.forEach(function (v, i) {
+      if (v === null) return;
+      if (!started) { g.moveTo(x(i), y(v)); started = true; }
+      else g.lineTo(x(i), y(v));
+    });
+    g.stroke();
+
+    /* live price line */
+    var ly = y(active.px);
+    g.setLineDash([4, 4]);
+    g.strokeStyle = "#4aa3e0";
+    g.lineWidth = 1;
+    g.beginPath();
+    g.moveTo(padL, Math.round(ly) + 0.5);
+    g.lineTo(padL + plotW, Math.round(ly) + 0.5);
+    g.stroke();
+    g.setLineDash([]);
+    g.fillStyle = "#4aa3e0";
+    g.fillRect(padL + plotW + 4, ly - 8, padR - 8, 16);
+    g.fillStyle = "#08121c";
+    g.font = "10px ui-monospace, monospace";
+    g.fillText(fmt(active.px), padL + plotW + 8, ly + 3);
+
+    /* volume */
+    var vTop = padT + priceH + gap;
+    cs.forEach(function (k, i) {
+      var h = Math.max(1, (k.v / maxV) * volH);
+      g.fillStyle = k.c >= k.o ? "rgba(31,192,124,.42)" : "rgba(255,90,99,.42)";
+      g.fillRect(x(i) - cw / 2, vTop + volH - h, cw, h);
+    });
+    g.strokeStyle = "#1a2431";
+    g.beginPath();
+    g.moveTo(padL, Math.round(vTop + volH) + 0.5);
+    g.lineTo(padL + plotW, Math.round(vTop + volH) + 0.5);
+    g.stroke();
+    g.fillStyle = "#5c6f83";
+    g.fillText("VOLUME", padL + 2, vTop + 10);
+    g.fillText(active.sym + "  -  1m candles  -  SMA 12", padL + 2, padT + 12);
+  }
+
+  /* ---------- header numbers ---------- */
+
+  function paintHead() {
+    var ch = changePct(active);
+    var abs = active.px - active.open;
+    document.getElementById("lastPrice").textContent = fmt(active.px);
+    var d = document.getElementById("lastDelta");
+    d.textContent = (abs >= 0 ? "+" : "") + fmt(abs) + "  (" + pct(ch) + ")   " + active.name;
+    d.className = "delta " + (ch >= 0 ? "up" : "down");
+    document.getElementById("dayHigh").textContent = fmt(active.high);
+    document.getElementById("dayLow").textContent = fmt(active.low);
+    document.getElementById("dayVol").textContent = (active.volume / 1000).toFixed(1) + "k";
+  }
+
+  /* ---------- order book ---------- */
+
+  var bookEl = document.getElementById("book");
+
+  function paintBook() {
+    var rows = [];
+    var mid = active.px;
+    var tickSize = Math.max(0.01, mid * 0.0004);
+    var asks = [], bids = [];
+    for (var i = 5; i >= 1; i--) asks.push({ px: mid + tickSize * i, qty: Math.floor(120 + rnd() * 2400) });
+    for (var j = 1; j <= 5; j++) bids.push({ px: mid - tickSize * j, qty: Math.floor(120 + rnd() * 2400) });
+    var maxQ = Math.max.apply(null, asks.concat(bids).map(function (o) { return o.qty; }));
+
+    asks.forEach(function (o) { rows.push(row(o, "ask", maxQ)); });
+    rows.push('<div class="spread"><span>Spread</span><span>' + fmt(tickSize * 2) + '</span><span>' + fmt(mid) + '</span></div>');
+    bids.forEach(function (o) { rows.push(row(o, "bid", maxQ)); });
+    bookEl.innerHTML = rows.join("");
+
+    function row(o, side, mx) {
+      var w = (o.qty / mx) * 100;
+      return '<div class="book-row ' + side + '">' +
+        '<div class="depth" style="width:' + w.toFixed(1) + '%"></div>' +
+        '<span class="qty">' + o.qty.toLocaleString("en-AU") + '</span>' +
+        '<span class="px">' + fmt(o.px) + '</span>' +
+        '<span class="qty">' + (o.qty * o.px / 1000).toFixed(1) + 'k</span>' +
+        '</div>';
+    }
+  }
+
+  /* ---------- time and sales ---------- */
+
+  var tradesEl = document.getElementById("trades");
+
+  function addTrade() {
+    var s = SYMBOLS[Math.floor(rnd() * SYMBOLS.length)];
+    var buy = rnd() > 0.5;
+    var qty = Math.floor(25 + rnd() * 1800);
+    var t = new Date();
+    var el = document.createElement("div");
+    el.className = "trade-row";
+    el.innerHTML = '<span class="t">' + t.toTimeString().slice(0, 8) + '</span>' +
+      '<span class="' + (buy ? "up" : "down") + '">' + s.sym + "  " + fmt(s.px) + '</span>' +
+      '<span class="q">' + qty.toLocaleString("en-AU") + '</span>';
+    tradesEl.insertBefore(el, tradesEl.firstChild);
+    while (tradesEl.children.length > 12) tradesEl.removeChild(tradesEl.lastChild);
+  }
+
+  /* ---------- indices ---------- */
+
+  var indicesEl = document.getElementById("indices");
+
+  function buildIndices() {
+    INDICES.forEach(function (ix) {
+      ix.open = ix.val;
+      ix.hist = [];
+      for (var i = 0; i < 60; i++) {
+        ix.val = ix.val * (1 + gauss() * ix.vol);
+        ix.hist.push(ix.val);
+      }
+      var cell = document.createElement("div");
+      cell.className = "cell";
+      cell.innerHTML = '<span class="name">' + ix.name + '</span>' +
+        '<span class="val"></span><span class="chg"></span><canvas></canvas>';
+      indicesEl.appendChild(cell);
+      ix.el = { val: cell.querySelector(".val"), chg: cell.querySelector(".chg"), canvas: cell.querySelector("canvas") };
+    });
+  }
+
+  function paintIndices() {
+    var up = 0;
+    INDICES.forEach(function (ix) {
+      var ch = ((ix.val - ix.open) / ix.open) * 100;
+      if (ch >= 0) up++;
+      ix.el.val.textContent = (ix.unit === "$" ? "$" : "") + fmt(ix.val, ix.dp) + (ix.unit === "%" ? "%" : "");
+      ix.el.chg.textContent = pct(ch);
+      ix.el.chg.className = "chg " + (ch >= 0 ? "up" : "down");
+      spark(ix);
+    });
+    document.getElementById("marketsBreadth").textContent = up + " up / " + (INDICES.length - up) + " down";
+  }
+
+  function spark(ix) {
+    var dim = sizeCanvas(ix.el.canvas, 30);
+    var g = dim.g, W = dim.w, H = dim.h;
+    var hi = Math.max.apply(null, ix.hist), lo = Math.min.apply(null, ix.hist);
+    var span = (hi - lo) || 1;
+    var rising = ix.val >= ix.open;
+    g.clearRect(0, 0, W, H);
+    g.beginPath();
+    ix.hist.forEach(function (v, i) {
+      var x = (i / (ix.hist.length - 1)) * W;
+      var y = H - 2 - ((v - lo) / span) * (H - 5);
+      if (i === 0) g.moveTo(x, y); else g.lineTo(x, y);
+    });
+    g.strokeStyle = rising ? "#1fc07c" : "#ff5a63";
+    g.lineWidth = 1.3;
+    g.stroke();
+    g.lineTo(W, H); g.lineTo(0, H); g.closePath();
+    g.fillStyle = rising ? "rgba(31,192,124,.13)" : "rgba(255,90,99,.13)";
+    g.fill();
+  }
+
+  /* ---------- portfolio, served by the application on :3000 ---------- */
+
+  var pfEl = document.getElementById("portfolio");
+  var pfSource = document.getElementById("pfSource");
+  var positions = null;
+
+  function loadPositions() {
+    var url = location.protocol + "//" + location.hostname + ":3000/api/positions";
+    var ctrl = typeof AbortController === "function" ? new AbortController() : null;
+    var timer = setTimeout(function () { if (ctrl) ctrl.abort(); }, 4000);
+    fetch(url, { signal: ctrl ? ctrl.signal : undefined, cache: "no-store" })
+      .then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      })
+      .then(function (data) {
+        clearTimeout(timer);
+        positions = data.positions || [];
+        pfSource.textContent = "live";
+        pfSource.style.color = "";
+        paintPortfolio();
+      })
+      .catch(function (err) {
+        clearTimeout(timer);
+        positions = null;
+        pfSource.textContent = "unavailable";
+        pfSource.style.color = "#ff5a63";
+        pfEl.innerHTML = '<div class="pf-state"><strong>Portfolio service unavailable</strong>' +
+          'Positions could not be loaded from the account service (' + String(err.message || err) + ').' +
+          ' Market data is unaffected. Orders placed now will settle once the service returns.</div>';
+        paintAccount();
+      });
+  }
+
+  function paintPortfolio() {
+    if (!positions) return;
+    var rows = ['<div class="pf-head"><span>Symbol</span><span>Qty / avg</span><span>Last</span><span>P&amp;L</span></div>'];
+    positions.forEach(function (p) {
+      var live = SYMBOLS.filter(function (s) { return s.sym === p.symbol; })[0];
+      var last = live ? live.px : p.avg_price;
+      var pl = (last - p.avg_price) * p.quantity;
+      rows.push('<div class="pf-row">' +
+        '<span>' + p.symbol + '</span>' +
+        '<span class="qty">' + p.quantity.toLocaleString("en-AU") + ' @ ' + fmt(p.avg_price) + '</span>' +
+        '<span class="avg">' + fmt(last) + '</span>' +
+        '<span class="pl ' + (pl >= 0 ? "up" : "down") + '">' + (pl >= 0 ? "+" : "") + fmt(pl) + '</span>' +
+        '</div>');
+    });
+    pfEl.innerHTML = rows.join("");
+    paintAccount();
+  }
+
+  function paintAccount() {
+    var equity = 250000, day = 0;
+    if (positions) {
+      positions.forEach(function (p) {
+        var live = SYMBOLS.filter(function (s) { return s.sym === p.symbol; })[0];
+        var last = live ? live.px : p.avg_price;
+        equity += last * p.quantity;
+        day += live ? (live.px - live.open) * p.quantity : 0;
+      });
+      document.getElementById("equity").textContent = money(equity);
+      var dp = document.getElementById("daypl");
+      dp.textContent = (day >= 0 ? "+" : "") + money(day).replace("$-", "-$");
+      dp.className = "v " + (day >= 0 ? "up" : "down");
+      document.getElementById("power").textContent = money(equity * 0.4);
+    } else {
+      document.getElementById("equity").textContent = "unavailable";
+      document.getElementById("daypl").textContent = "unavailable";
+      document.getElementById("daypl").className = "v";
+      document.getElementById("power").textContent = "unavailable";
+    }
+  }
+
+  /* ---------- newswire ---------- */
+
+  var NEWS = [
+    ["KSTR", "Kestrel Group lifts full year guidance on brokerage volumes"],
+    ["ORBT", "Orbital Freight signs five year port handling contract"],
+    ["NVAX", "Novaxis Energy brings the Whitfield battery site online early"],
+    ["HLIO", "Helio Systems wins tier one cloud migration mandate"],
+    ["ARGO", "Argo Minerals reports higher grades at the Wandoo pit"],
+    ["VNTA", "Ventana Health clears phase two trial endpoint"],
+    ["QBIT", "Qubit Compute doubles error corrected qubit count"],
+    ["TDRA", "Tundra Logistics flags softer freight rates into December"],
+    ["MRDN", "Meridian Bank raises deposit rates ahead of the cash rate call"],
+    ["SOLA", "Solara Materials commissions the second cathode line"],
+    ["MACRO", "Retail sales print firmer than consensus, yields tick higher"],
+    ["MACRO", "Central bank holds rates, language on inflation unchanged"],
+    ["MACRO", "Energy complex bid as inventories draw for a fourth week"],
+    ["MACRO", "Index rebalance takes effect at the close on Friday"]
+  ];
+
+  var newsEl = document.getElementById("news");
+  var newsPos = Math.floor(rnd() * NEWS.length);
+
+  function addNews() {
+    var item = NEWS[newsPos % NEWS.length];
+    newsPos++;
+    var el = document.createElement("div");
+    el.className = "news-row" + (item[0] === "MACRO" ? " macro" : "");
+    var live = SYMBOLS.filter(function (x) { return x.sym === item[0]; })[0];
+    var cls = live ? (changePct(live) >= 0 ? "up" : "down") : "";
+    el.innerHTML = '<span class="t">' + new Date().toTimeString().slice(0, 8) + '</span>' +
+      '<span class="s ' + cls + '">' + item[0] + '</span>' +
+      '<span class="h">' + item[1] + '</span>';
+    newsEl.insertBefore(el, newsEl.firstChild);
+    while (newsEl.children.length > 7) newsEl.removeChild(newsEl.lastChild);
+  }
+
+  /* ---------- clock, session, latency ---------- */
+
+  function paintClock() {
+    var d = new Date();
+    document.getElementById("clock").textContent = d.toTimeString().slice(0, 8) + " local";
+    document.getElementById("latency").textContent = "Latency: " + (7 + Math.floor(rnd() * 9)) + " ms";
+  }
+
+  /* ---------- loops ---------- */
+
+  buildTape();
+  buildSyms();
+  buildIndices();
+  document.getElementById("bookSym").textContent = active.sym;
+
+  setInterval(function () {
+    SYMBOLS.forEach(step);
+    INDICES.forEach(function (ix) {
+      ix.val = ix.val * (1 + gauss() * ix.vol);
+      ix.hist.push(ix.val);
+      if (ix.hist.length > 60) ix.hist.shift();
+    });
+    paintTape();
+    paintHead();
+    drawChart();
+    if (positions) paintPortfolio();
+  }, TICK_MS);
+
+  setInterval(function () { SYMBOLS.forEach(newCandle); }, CANDLE_MS);
+  setInterval(paintBook, 900);
+  setInterval(addTrade, 1100);
+  setInterval(paintIndices, 1000);
+  setInterval(paintClock, 1000);
+  setInterval(loadPositions, 15000);
+  setInterval(addNews, 6500);
+
+  paintTape(); paintHead(); paintBook(); paintIndices(); paintClock(); drawChart();
+  loadPositions();
+  for (var i = 0; i < 6; i++) addTrade();
+  for (var n = 0; n < 5; n++) addNews();
+
+  window.addEventListener("resize", function () { drawChart(); paintIndices(); });
+})();
+</script>
 </body>
 </html>

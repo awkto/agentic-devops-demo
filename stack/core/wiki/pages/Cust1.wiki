@@ -9,11 +9,11 @@ Customer 1 runs a small web platform on a single host.
 {| class="wikitable"
 ! Service !! How it runs !! Port !! Notes
 |-
-| Website || nginx, static files in /var/www/html || 80 || Public marketing site
+| Website || nginx, static files in /var/www/html || 80 || Public trading dashboard. Market data is generated in the browser, so the page renders with the application down
 |-
-| Application || systemd unit <code>nodeapp</code>, code in /opt/app || 3000 || Node.js, reads config from /opt/app/config.json, needs PostgreSQL
+| Application || systemd unit <code>nodeapp</code>, code in /opt/app || 3000 || Account service: serves customer positions from PostgreSQL as JSON at /api/positions, which the website fetches. Reads config from /opt/app/config.json
 |-
-| Database || PostgreSQL (distro package), data on / || 5432 (localhost) || Used by the application only
+| Database || PostgreSQL (distro package), data on / || 5432 (localhost) || Holds the <code>positions</code> table. Used by the application only
 |}
 
 == Operational notes ==

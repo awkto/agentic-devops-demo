@@ -18,6 +18,25 @@ sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname='app'" | grep -q
 sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname='app'" | grep -q 1 || \
   sudo -u postgres createdb -O app app
 
+# positions of record, served by the account service on :3000
+sudo -u postgres psql -q -d app <<'SQL'
+CREATE TABLE IF NOT EXISTS positions (
+  symbol    text PRIMARY KEY,
+  quantity  integer NOT NULL,
+  avg_price numeric(10,2) NOT NULL,
+  opened    date NOT NULL
+);
+INSERT INTO positions (symbol, quantity, avg_price, opened) VALUES
+  ('KSTR', 1450, 171.40, '2026-03-11'),
+  ('ORBT', 3200,  58.05, '2026-05-02'),
+  ('NVAX',  480, 298.60, '2026-01-27'),
+  ('HLIO', 6100,  44.85, '2026-06-14'),
+  ('QBIT',  260, 517.30, '2026-04-08'),
+  ('MRDN', 9400,  27.90, '2025-11-19')
+ON CONFLICT (symbol) DO NOTHING;
+GRANT SELECT ON positions TO app;
+SQL
+
 # application
 mkdir -p /opt/app
 cp /opt/demo/customer/app/server.js /opt/app/server.js
