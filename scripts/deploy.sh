@@ -56,7 +56,7 @@ fi
 sync_repo() {
   ssh $SSH_OPTS "root@$1" "command -v rsync >/dev/null || apt-get install -y -qq rsync"
   rsync -az --delete -e "ssh $SSH_OPTS" \
-    --exclude .git --exclude terraform/.terraform --exclude 'terraform/*tfstate*' \
+    --exclude .git --exclude state --exclude terraform/.terraform --exclude 'terraform/*tfstate*' \
     "$ROOT/" "root@$1:/opt/demo/"
 }
 
