@@ -38,12 +38,25 @@ Timings below are from the 19 Aug 2026 dry run on qwen3p7-plus via Fireworks.
 4. Open two windows side by side:
    - Browser: Mattermost as **alice**, Incidents channel. Optionally tabs for
      Zammad and Icinga to show tickets and alerts as they happen.
-   - Terminal: ssh to cust1 as root for the break scripts:
+   - Terminal: ssh to cust1 as root for the break scripts. Every break script
+     runs **on cust1**, never on your own machine:
+
+     ```
+     ssh root@cust1.gobyl.cc
+     ```
+
+     That works if your public key is in `agentic-demo/ssh-operator` (the
+     deploy authorizes it on all three droplets). Otherwise use the generated
+     ops key:
 
      ```
      bao kv get -field=private_key agentic-demo/ssh-ops > /tmp/ops && chmod 600 /tmp/ops
      ssh -i /tmp/ops root@cust1.gobyl.cc
      ```
+
+     The other two hosts, for logs and harness work: `root@agent.gobyl.cc`
+     (the harness, `journalctl -u agentd`) and `root@chat.gobyl.cc` (core -
+     any of the chat/sso/tickets/icinga/wiki/bao names reach it).
 
 ## Scenario 1: website down (the opener, simple fix)
 

@@ -37,6 +37,13 @@ scripts/deploy.sh
 scripts/teardown.sh
 ```
 
+To reach the hosts as yourself rather than with the generated ops key, store
+your public key once and every deploy authorizes it on all three droplets:
+
+```
+bao kv put agentic-demo/ssh-operator public_key="$(cat ~/.ssh/id_ed25519.pub)"
+```
+
 ## Demo scenarios
 
 On cust1, as root:

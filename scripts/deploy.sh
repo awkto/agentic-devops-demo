@@ -39,6 +39,19 @@ wait_cloudinit() {
 for ip in "$CORE_IP" "$AGENT_IP" "$CUST1_IP"; do wait_ssh "$ip"; done
 for ip in "$CORE_IP" "$AGENT_IP" "$CUST1_IP"; do wait_cloudinit "$ip"; done
 
+# Authorize the operator's own key on every host so you can ssh in as yourself
+# instead of juggling the generated ops key. Optional: set it once with
+#   bao kv put agentic-demo/ssh-operator public_key="$(cat ~/.ssh/id_ed25519.pub)"
+# and every deploy picks it up. Missing field just means you use the ops key.
+OPERATOR_PUBKEY=$(bao kv get -format=json agentic-demo/ssh-operator 2>/dev/null | jq -r '.data.data.public_key // empty')
+if [ -n "$OPERATOR_PUBKEY" ]; then
+  echo "==> authorizing operator key"
+  for ip in "$CORE_IP" "$AGENT_IP" "$CUST1_IP"; do
+    ssh $SSH_OPTS "root@$ip" \
+      "grep -qxF '$OPERATOR_PUBKEY' /root/.ssh/authorized_keys || echo '$OPERATOR_PUBKEY' >> /root/.ssh/authorized_keys"
+  done
+fi
+
 sync_repo() {
   ssh $SSH_OPTS "root@$1" "command -v rsync >/dev/null || apt-get install -y -qq rsync"
   rsync -az --delete -e "ssh $SSH_OPTS" \
