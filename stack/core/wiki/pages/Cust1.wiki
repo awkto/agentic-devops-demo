@@ -13,7 +13,7 @@ Customer 1 runs a small web platform on two hosts: the web host <code>cust1</cod
 {| class="wikitable"
 ! Service !! How it runs !! Port !! Notes
 |-
-| Website || nginx, static files in /var/www/html || 80 || Public trading dashboard. Market data is generated in the browser, so the page renders with the application down
+| Website || nginx, static files in /var/www/html || 80 || Public trading dashboard with a live platform-telemetry graph. Market data and the telemetry traces are generated in the browser, so the page renders with the application down and the graph is not a measurement of the host
 |-
 | Application || systemd unit <code>nodeapp</code>, code in /opt/app || 3000 || Account service: serves customer positions from PostgreSQL '''on db1''' as JSON at /api/positions, which the website fetches. Reads config from /opt/app/config.json
 |}

@@ -249,6 +249,41 @@
   .canvas-wrap { position: relative; padding: 0 6px 10px; }
   canvas { display: block; width: 100%; }
 
+  /* ---------- telemetry ---------- */
+
+  .full { grid-column: 1 / -1; }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 26px;
+    padding: 11px 14px 2px;
+  }
+
+  .legend .lg { display: flex; flex-direction: column; gap: 2px; min-width: 116px; }
+
+  .legend .k {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 10px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--dim);
+  }
+
+  .legend .sw { width: 13px; height: 3px; border-radius: 2px; flex: none; }
+
+  .legend .v {
+    font-size: 19px;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .legend .v small { font-size: 11px; color: var(--dim); margin-left: 2px; }
+
+  .legend .lg.hot .v { color: var(--down); }
+
   /* ---------- book ---------- */
 
   .book { padding: 6px 0 10px; font-variant-numeric: tabular-nums; }
@@ -418,6 +453,12 @@
 <div class="tape"><div class="tape-track" id="tape"></div></div>
 
 <main>
+
+  <section class="card full">
+    <h2>Platform telemetry <em id="teleMeta">cust1 &middot; 1 s resolution &middot; 90 s window</em></h2>
+    <div class="legend" id="teleLegend"></div>
+    <div class="canvas-wrap"><canvas id="tele" height="220"></canvas></div>
+  </section>
   <div class="col">
 
     <section class="card">
@@ -958,6 +999,169 @@
     while (newsEl.children.length > 7) newsEl.removeChild(newsEl.lastChild);
   }
 
+  /* ---------- platform telemetry ---------- */
+
+  var TELE = [
+    { name: "Gateway CPU", color: "#f0a94b", unit: "%", base: 38, vol: 2.6, val: 38, warn: 85 },
+    { name: "Memory",      color: "#4aa3e0", unit: "%", base: 62, vol: 0.9, val: 62, warn: 90 },
+    { name: "Feed I/O",    color: "#1fc07c", unit: "%", base: 54, vol: 4.0, val: 54, warn: 92 },
+    { name: "Disk I/O",    color: "#b07bd8", unit: "%", base: 21, vol: 3.4, val: 21, warn: 88 }
+  ];
+
+  var TELE_WINDOW = 90;
+  var teleCanvas = document.getElementById("tele");
+  var teleAt = 0;
+
+  function rgba(hex, a) {
+    var n = parseInt(hex.slice(1), 16);
+    return "rgba(" + ((n >> 16) & 255) + "," + ((n >> 8) & 255) + "," + (n & 255) + "," + a + ")";
+  }
+
+  function buildTele() {
+    var el = document.getElementById("teleLegend");
+    TELE.forEach(function (s) {
+      s.hist = [];
+      for (var i = 0; i < TELE_WINDOW; i++) {
+        s.val = Math.max(3, Math.min(99, s.val + (s.base - s.val) * 0.1 + gauss() * s.vol));
+        s.hist.push(s.val);
+      }
+      var d = document.createElement("div");
+      d.className = "lg";
+      d.innerHTML = '<span class="k"><i class="sw" style="background:' + s.color + '"></i>' +
+        s.name + '</span><span class="v">-</span>';
+      el.appendChild(d);
+      s.node = d;
+      s.valNode = d.querySelector(".v");
+    });
+  }
+
+  function teleStep() {
+    TELE.forEach(function (s) {
+      // mean-reverting walk, with the occasional burst so the trace has shape
+      if (s.spike === undefined || s.spike <= 0) {
+        s.spike = rnd() < 0.022 ? 6 + Math.floor(rnd() * 12) : 0;
+        if (s.spike) s.push = 14 + rnd() * 26;
+      }
+      var pull = s.spike > 0 ? (s.base + s.push - s.val) * 0.28 : (s.base - s.val) * 0.09;
+      if (s.spike > 0) s.spike--;
+      s.val = Math.max(3, Math.min(99, s.val + pull + gauss() * s.vol));
+      s.hist.push(s.val);
+      while (s.hist.length > TELE_WINDOW + 2) s.hist.shift();
+      s.valNode.textContent = fmt(s.val, 1);
+      s.valNode.insertAdjacentHTML("beforeend", "<small>" + s.unit + "</small>");
+      s.node.className = s.val >= s.warn ? "lg hot" : "lg";
+    });
+    teleAt = performance.now();
+  }
+
+  function drawTele() {
+    var dim = sizeCanvas(teleCanvas, 220);
+    var g = dim.g;
+    var padL = 36, padR = 14, padT = 12, padB = 20;
+    var plotW = dim.w - padL - padR;
+    var plotH = dim.h - padT - padB;
+    if (plotW <= 0) return;
+
+    var frac = Math.max(0, Math.min(1, (performance.now() - teleAt) / 1000));
+    var step = plotW / (TELE_WINDOW - 1);
+    var right = padL + plotW;
+    var y = function (v) { return padT + plotH - (v / 100) * plotH; };
+
+    g.clearRect(0, 0, dim.w, dim.h);
+
+    // horizontal grid and scale
+    g.font = "10px " + getComputedStyle(document.body).fontFamily;
+    g.textBaseline = "middle";
+    for (var v = 0; v <= 100; v += 25) {
+      g.strokeStyle = v === 0 ? "#1e2a37" : "rgba(30,42,55,.72)";
+      g.lineWidth = 1;
+      g.beginPath();
+      g.moveTo(padL, Math.round(y(v)) + 0.5);
+      g.lineTo(right, Math.round(y(v)) + 0.5);
+      g.stroke();
+      g.fillStyle = "#6d8096";
+      g.textAlign = "right";
+      g.fillText(v + "%", padL - 8, y(v));
+    }
+
+    g.save();
+    g.beginPath();
+    g.rect(padL, padT - 4, plotW, plotH + 8);
+    g.clip();
+
+    // time gridlines slide left with the data
+    g.strokeStyle = "rgba(30,42,55,.55)";
+    for (var k = 0; k <= TELE_WINDOW; k += 10) {
+      var gx = right - (k + frac) * step;
+      g.beginPath();
+      g.moveTo(gx, padT - 4);
+      g.lineTo(gx, padT + plotH);
+      g.stroke();
+    }
+
+    TELE.forEach(function (s) {
+      var h = s.hist;
+      var n = h.length;
+      var px = function (i) { return right - (n - 1 - i + frac) * step; };
+
+      g.beginPath();
+      g.moveTo(px(0), y(h[0]));
+      for (var i = 1; i < n; i++) g.lineTo(px(i), y(h[i]));
+
+      var area = g.createLinearGradient(0, padT, 0, padT + plotH);
+      area.addColorStop(0, rgba(s.color, 0.20));
+      area.addColorStop(1, rgba(s.color, 0));
+      g.save();
+      g.lineTo(px(n - 1), padT + plotH);
+      g.lineTo(px(0), padT + plotH);
+      g.closePath();
+      g.fillStyle = area;
+      g.fill();
+      g.restore();
+
+      g.beginPath();
+      g.moveTo(px(0), y(h[0]));
+      for (var j = 1; j < n; j++) g.lineTo(px(j), y(h[j]));
+      g.strokeStyle = s.color;
+      g.lineWidth = 1.6;
+      g.lineJoin = "round";
+      g.stroke();
+
+      s.headX = px(n - 1);
+      s.headY = y(h[n - 1]);
+    });
+    g.restore();
+
+    // leading edge and heads
+    TELE.forEach(function (s) {
+      if (s.headX === undefined) return;
+      g.beginPath();
+      g.arc(s.headX, s.headY, 2.6, 0, Math.PI * 2);
+      g.fillStyle = s.color;
+      g.shadowColor = s.color;
+      g.shadowBlur = 9;
+      g.fill();
+      g.shadowBlur = 0;
+    });
+
+    g.strokeStyle = "rgba(109,128,150,.45)";
+    g.beginPath();
+    g.moveTo(right + 0.5, padT - 4);
+    g.lineTo(right + 0.5, padT + plotH);
+    g.stroke();
+
+    g.fillStyle = "#6d8096";
+    g.textAlign = "left";
+    g.fillText("-90 s", padL, padT + plotH + 10);
+    g.textAlign = "right";
+    g.fillText("now", right, padT + plotH + 10);
+  }
+
+  function teleLoop() {
+    drawTele();
+    requestAnimationFrame(teleLoop);
+  }
+
   /* ---------- clock, session, latency ---------- */
 
   function paintClock() {
@@ -971,6 +1175,7 @@
   buildTape();
   buildSyms();
   buildIndices();
+  buildTele();
   document.getElementById("bookSym").textContent = active.sym;
 
   setInterval(function () {
@@ -991,15 +1196,18 @@
   setInterval(addTrade, 1100);
   setInterval(paintIndices, 1000);
   setInterval(paintClock, 1000);
+  setInterval(teleStep, 1000);
   setInterval(loadPositions, 15000);
   setInterval(addNews, 6500);
 
   paintTape(); paintHead(); paintBook(); paintIndices(); paintClock(); drawChart();
+  teleStep();
+  teleLoop();
   loadPositions();
   for (var i = 0; i < 6; i++) addTrade();
   for (var n = 0; n < 5; n++) addNews();
 
-  window.addEventListener("resize", function () { drawChart(); paintIndices(); });
+  window.addEventListener("resize", function () { drawChart(); paintIndices(); drawTele(); });
 })();
 </script>
 </body>
