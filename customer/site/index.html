@@ -251,6 +251,51 @@
 
   /* ---------- host heartbeat ---------- */
 
+  /* ---------- degraded banner ---------- */
+
+  .pill.warn { border-color: var(--accent); color: var(--accent); }
+  .pill.warn .led { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+
+  .stat.bad .v { color: var(--down); }
+
+  #degraded {
+    display: none;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    padding: 9px 18px;
+    background: #1b0d10;
+    border-bottom: 1px solid var(--down);
+    color: var(--down);
+    font-size: 12px;
+  }
+
+  #degraded.on { display: flex; }
+
+  #degraded .lead {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    font-weight: 600;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
+  #degraded .lead i {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--down);
+    box-shadow: 0 0 9px var(--down);
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+
+  #degraded .detail { color: #e8a7ab; }
+  #degraded .detail b { color: var(--text); font-weight: 600; }
+  #degraded .age { margin-left: auto; color: #e8a7ab; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
   .pill.bad { border-color: var(--down); color: var(--down); }
   .pill.bad .led { background: var(--down); box-shadow: 0 0 8px var(--down); }
 
@@ -555,6 +600,12 @@
 </header>
 
 <div class="tape"><div class="tape-track" id="tape"></div></div>
+
+<div id="degraded">
+  <span class="lead"><i></i> Account service degraded</span>
+  <span class="detail" id="degWhy">-</span>
+  <span class="age" id="degAge">-</span>
+</div>
 
 <main>
 
@@ -1013,6 +1064,7 @@
         positions = data.positions || [];
         pfSource.textContent = "live";
         pfSource.style.color = "";
+        clearDegraded();
         paintPortfolio();
       })
       .catch(function (err) {
@@ -1023,6 +1075,7 @@
         pfEl.innerHTML = '<div class="pf-state"><strong>Portfolio service unavailable</strong>' +
           'Positions could not be loaded from the account service (' + String(err.message || err) + ').' +
           ' Market data is unaffected. Orders placed now will settle once the service returns.</div>';
+        setDegraded(String(err.message || err));
         paintAccount();
       });
   }
@@ -1107,6 +1160,54 @@
   // The page polls its own origin every 1.5 s so an outage is visible without
   // anyone touching the browser, and so recovery reloads the page by itself.
 
+  /* ---------- degraded state ---------- */
+  // The web server can be healthy while the account service behind it is not.
+  // That is a different failure from the site being down, and it says so.
+
+  var degSince = null;
+  var degTries = 0;
+
+  function paintPill() {
+    var pill = document.getElementById("hbPill");
+    var label = document.getElementById("hbState");
+    if (hbDownAt !== null) { pill.className = "pill bad"; label.textContent = "Site down"; return; }
+    if (degSince !== null) { pill.className = "pill warn"; label.textContent = "Degraded"; return; }
+    pill.className = "pill";
+    label.textContent = "Site live";
+  }
+
+  function degPaint() {
+    if (degSince === null) return;
+    var secs = Math.floor((Date.now() - degSince) / 1000);
+    document.getElementById("degAge").textContent =
+      "degraded for " + String(Math.floor(secs / 60)).padStart(2, "0") + ":" +
+      String(secs % 60).padStart(2, "0") + " · retry " + degTries;
+  }
+
+  function setDegraded(why) {
+    if (degSince === null) { degSince = Date.now(); degTries = 0; }
+    degTries++;
+    document.getElementById("degWhy").innerHTML =
+      "<b>" + why + "</b> from the account service on port 3000. Positions, equity, day P&amp;L and " +
+      "buying power cannot be read. Market data is unaffected; orders will settle when the service returns.";
+    document.getElementById("degraded").className = "on";
+    ["equity", "daypl", "power"].forEach(function (id) {
+      document.getElementById(id).parentNode.classList.add("bad");
+    });
+    degPaint();
+    paintPill();
+  }
+
+  function clearDegraded() {
+    degSince = null;
+    degTries = 0;
+    document.getElementById("degraded").className = "";
+    ["equity", "daypl", "power"].forEach(function (id) {
+      document.getElementById(id).parentNode.classList.remove("bad");
+    });
+    paintPill();
+  }
+
   var HB_MS = 1500;
   var hbDownAt = null;
   var hbTries = 0;
@@ -1127,9 +1228,7 @@
     document.getElementById("offWhy").textContent = why;
     hbBox.className = "on";
     hbPaint();
-    var pill = document.getElementById("hbPill");
-    pill.className = "pill bad";
-    document.getElementById("hbState").textContent = "Site down";
+    paintPill();
     document.getElementById("feed").textContent = "Feed: lost";
   }
 
@@ -1145,8 +1244,7 @@
       return;
     }
     hbBox.className = "";
-    document.getElementById("hbPill").className = "pill";
-    document.getElementById("hbState").textContent = "Site live";
+    paintPill();
     document.getElementById("feed").textContent = "Feed: connected";
   }
 
@@ -1369,7 +1467,8 @@
   setInterval(teleStep, 1000);
   setInterval(heartbeat, HB_MS);
   setInterval(hbPaint, 1000);
-  setInterval(loadPositions, 15000);
+  setInterval(loadPositions, 4000);
+  setInterval(degPaint, 1000);
   setInterval(addNews, 6500);
 
   paintTape(); paintHead(); paintBook(); paintIndices(); paintClock(); drawChart();
