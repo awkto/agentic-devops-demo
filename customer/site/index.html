@@ -249,6 +249,95 @@
   .canvas-wrap { position: relative; padding: 0 6px 10px; }
   canvas { display: block; width: 100%; }
 
+  /* ---------- host heartbeat ---------- */
+
+  .pill.bad { border-color: var(--down); color: var(--down); }
+  .pill.bad .led { background: var(--down); box-shadow: 0 0 8px var(--down); }
+
+  #offline {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(6, 9, 13, .93);
+    padding: 24px;
+  }
+
+  #offline.on { display: flex; }
+
+  #offline .box {
+    border: 1px solid var(--down);
+    border-radius: 3px;
+    background: #14090b;
+    box-shadow: 0 0 0 1px rgba(255, 90, 99, .12), 0 24px 60px rgba(0, 0, 0, .6);
+    padding: 30px 38px;
+    max-width: 620px;
+    width: 100%;
+  }
+
+  #offline .tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 11px;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+    color: var(--down);
+  }
+
+  #offline .tag i {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--down);
+    box-shadow: 0 0 10px var(--down);
+    animation: pulse 1.1s ease-in-out infinite;
+  }
+
+  #offline h3 {
+    margin: 14px 0 6px;
+    font-size: 27px;
+    font-weight: 700;
+    letter-spacing: .02em;
+    color: var(--text);
+  }
+
+  #offline .why {
+    color: var(--down);
+    font-size: 13px;
+    margin-bottom: 18px;
+    word-break: break-word;
+  }
+
+  #offline .meta {
+    display: flex;
+    gap: 26px;
+    flex-wrap: wrap;
+    padding-top: 15px;
+    border-top: 1px solid #35181c;
+    font-size: 11px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--dim);
+  }
+
+  #offline .meta b {
+    display: block;
+    margin-top: 3px;
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+
+  #offline.up .box { border-color: var(--up); background: #08130e; }
+  #offline.up .tag, #offline.up .why { color: var(--up); }
+  #offline.up .tag i { background: var(--up); box-shadow: 0 0 10px var(--up); }
+
   /* ---------- telemetry ---------- */
 
   .full { grid-column: 1 / -1; }
@@ -440,10 +529,25 @@
 </head>
 <body>
 
+<div id="offline">
+  <div class="box">
+    <span class="tag"><i></i> <span id="offTag">Connection lost</span></span>
+    <h3 id="offTitle">Site unreachable</h3>
+    <div class="why" id="offWhy">-</div>
+    <div class="meta">
+      <div>Host<b id="offHost">-</b></div>
+      <div>Down for<b id="offFor">-</b></div>
+      <div>Probes<b id="offTries">-</b></div>
+      <div>Retrying<b>every 1.5 s</b></div>
+    </div>
+  </div>
+</div>
+
 <header>
   <div class="brand"><span class="mark"></span> Kestrel Markets <small>Trading Desk</small></div>
   <span class="pill"><span class="led"></span> <span id="session">Market open</span></span>
   <span class="pill" id="clock">--:--:--</span>
+  <span class="pill" id="hbPill"><span class="led"></span> <span id="hbState">Site live</span></span>
   <div class="spacer"></div>
   <div class="stat"><span class="k">Account equity</span><span class="v" id="equity">-</span></div>
   <div class="stat"><span class="k">Day P&amp;L</span><span class="v" id="daypl">-</span></div>
@@ -999,6 +1103,72 @@
     while (newsEl.children.length > 7) newsEl.removeChild(newsEl.lastChild);
   }
 
+  /* ---------- host heartbeat ---------- */
+  // The page polls its own origin every 1.5 s so an outage is visible without
+  // anyone touching the browser, and so recovery reloads the page by itself.
+
+  var HB_MS = 1500;
+  var hbDownAt = null;
+  var hbTries = 0;
+  var hbBox = document.getElementById("offline");
+
+  function hbPaint() {
+    if (hbDownAt === null) return;
+    var secs = Math.floor((Date.now() - hbDownAt) / 1000);
+    document.getElementById("offFor").textContent =
+      String(Math.floor(secs / 60)).padStart(2, "0") + ":" + String(secs % 60).padStart(2, "0");
+    document.getElementById("offTries").textContent = hbTries;
+  }
+
+  function hbDown(why) {
+    if (hbDownAt === null) { hbDownAt = Date.now(); hbTries = 0; }
+    hbTries++;
+    document.getElementById("offHost").textContent = location.hostname;
+    document.getElementById("offWhy").textContent = why;
+    hbBox.className = "on";
+    hbPaint();
+    var pill = document.getElementById("hbPill");
+    pill.className = "pill bad";
+    document.getElementById("hbState").textContent = "Site down";
+    document.getElementById("feed").textContent = "Feed: lost";
+  }
+
+  function hbUp() {
+    if (hbDownAt !== null) {
+      // came back on its own: show it, then reload into the live page
+      document.getElementById("offTag").textContent = "Service restored";
+      document.getElementById("offTitle").textContent = "Back online";
+      document.getElementById("offWhy").textContent = "HTTP 200 from " + location.hostname + " - reloading";
+      hbBox.className = "on up";
+      setTimeout(function () { location.reload(); }, 1400);
+      hbDownAt = null;
+      return;
+    }
+    hbBox.className = "";
+    document.getElementById("hbPill").className = "pill";
+    document.getElementById("hbState").textContent = "Site live";
+    document.getElementById("feed").textContent = "Feed: connected";
+  }
+
+  function heartbeat() {
+    var ctrl = window.AbortController ? new AbortController() : null;
+    var timer = setTimeout(function () { if (ctrl) ctrl.abort(); }, HB_MS - 200);
+    fetch(location.pathname + "?hb=" + Date.now(), {
+      method: "HEAD",
+      cache: "no-store",
+      signal: ctrl ? ctrl.signal : undefined
+    })
+      .then(function (r) {
+        clearTimeout(timer);
+        if (r.ok) hbUp();
+        else hbDown("Web server answered HTTP " + r.status + " " + r.statusText);
+      })
+      .catch(function () {
+        clearTimeout(timer);
+        hbDown("No response from the web server (connection refused or timed out)");
+      });
+  }
+
   /* ---------- platform telemetry ---------- */
 
   var TELE = [
@@ -1197,12 +1367,15 @@
   setInterval(paintIndices, 1000);
   setInterval(paintClock, 1000);
   setInterval(teleStep, 1000);
+  setInterval(heartbeat, HB_MS);
+  setInterval(hbPaint, 1000);
   setInterval(loadPositions, 15000);
   setInterval(addNews, 6500);
 
   paintTape(); paintHead(); paintBook(); paintIndices(); paintClock(); drawChart();
   teleStep();
   teleLoop();
+  heartbeat();
   loadPositions();
   for (var i = 0; i < 6; i++) addTrade();
   for (var n = 0; n < 5; n++) addNews();

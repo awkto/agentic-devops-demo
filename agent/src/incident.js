@@ -27,6 +27,31 @@ export class Incident {
     this.done = false;
     this.idleTimer = null;
     this.q = null;
+    this.postKeys = [];
+    this.dupPosts = 0;
+    this.postsTotal = 0;
+  }
+
+  // A model that loops will happily post the same update forever. Refuse the
+  // repeat, tell it so, and close the session if it keeps going.
+  guardPost(message, threadId) {
+    const key = (threadId || this.rootId || '') + '|' +
+      String(message).trim().replace(/\s+/g, ' ').slice(0, 400);
+    if (this.postKeys.includes(key)) {
+      this.dupPosts += 1;
+      if (this.dupPosts >= 3) this.close('repeated updates suppressed, session closed');
+      return 'NOT POSTED: you already posted this update in this thread. Do not send it again. ' +
+        'If there is nothing new to add, stop calling tools and reply with your final summary.';
+    }
+    this.postsTotal += 1;
+    if (this.postsTotal > 30) {
+      this.close('update limit reached, session closed');
+      return 'NOT POSTED: this session has posted too many updates. Stop and reply with a final summary.';
+    }
+    this.postKeys.push(key);
+    if (this.postKeys.length > 10) this.postKeys.shift();
+    this.dupPosts = 0;
+    return null;
   }
 
   async postUpdate(message, threadId) {
@@ -199,6 +224,9 @@ export class Incident {
         sessions.save(this.sessionId, this.messages);
         if (r.stop === 'max_iters') {
           await mm.post('Agent session hit the turn limit and stopped.', this.rootId);
+        }
+        if (r.stop === 'repeat_loop') {
+          await mm.post('(stopped: the model repeated the same action)', this.rootId);
         }
         if (this.done) return;
         // Turn finished. Keep the thread open for follow-up questions.

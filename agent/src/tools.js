@@ -97,6 +97,8 @@ const defs = [
       'instead - use that to tell an engineer in an earlier thread that their request has caused an alert.',
     shape: { message: z.string(), thread_id: z.string().optional() },
     run: async (incident, { message, thread_id }) => {
+      const refused = incident.guardPost(message, thread_id);
+      if (refused) return refused;
       await incident.postUpdate(message, thread_id);
       return thread_id ? `posted to thread ${thread_id}` : 'posted';
     },

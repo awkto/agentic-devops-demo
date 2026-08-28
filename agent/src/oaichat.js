@@ -28,6 +28,8 @@ export async function runTurn({
   baseUrl, apiKey, model, messages, tools, invoke,
   isAborted, injectUser, signal, maxIters = 80, maxTokens = 4096, temperature = 0.3,
 }) {
+  let lastSig = null;
+  let repeats = 0;
   for (let i = 0; i < maxIters; i++) {
     if (isAborted?.()) return { stop: 'aborted' };
     for (const extra of injectUser?.() ?? []) {
@@ -46,6 +48,12 @@ export async function runTurn({
     const calls = m.tool_calls || [];
     if (!calls.length) return { stop: 'end_turn', text: m.content || '' };
     for (const c of calls) {
+      // A model stuck in a loop repeats one call verbatim. Cut the turn rather
+      // than let it run to the iteration cap.
+      const sig = `${c.function.name}:${c.function.arguments || ''}`;
+      repeats = sig === lastSig ? repeats + 1 : 0;
+      lastSig = sig;
+      if (repeats >= 3) return { stop: 'repeat_loop' };
       let out;
       try {
         out = await invoke(c.function.name, JSON.parse(c.function.arguments || '{}'));
