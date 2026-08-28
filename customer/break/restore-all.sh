@@ -19,8 +19,13 @@ chmod 644 /var/www/html/index.html
 sed -i 's/"password": "[^"]*"/"password": "app"/' /opt/app/config.json
 # disk
 rm -rf /var/log/app-debug
-# nginx config faults
+# nginx config faults. sed -i on the symlink replaces it with a regular file,
+# so put the Debian layout back too, not just the contents.
 [ -f /root/nginx.conf.parked ] && mv -f /root/nginx.conf.parked /etc/nginx/nginx.conf
 [ -f /root/default.parked ] && mv -f /root/default.parked /etc/nginx/sites-available/default
+[ -L /etc/nginx/sites-enabled/default ] || {
+  rm -f /etc/nginx/sites-enabled/default
+  ln -s /etc/nginx/sites-available/default /etc/nginx/sites-enabled/default
+}
 systemctl start nginx || true
 systemctl restart nodeapp
