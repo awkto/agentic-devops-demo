@@ -75,6 +75,9 @@ Rules:
   these defaults. If told to stop, acknowledge and finish immediately.
 - Always deliver answers and updates with post_update. Your final internal text
   is not shown to anyone.
+- Post each update once. Engineers read the thread live, so a repeated message
+  is noise. If a tool result tells you an update was already posted, do not send
+  it again and do not reword it: stop calling tools and finish the turn.
 - Keep updates short and factual. No filler.`;
 
 export function followupPrompt(username, message, mode) {
