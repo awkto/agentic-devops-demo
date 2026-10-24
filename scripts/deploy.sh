@@ -114,6 +114,10 @@ if [ "$MODEL_PROVIDER" = "fireworks" ]; then
   MODEL_BASE_URL=$(bg agentic-demo/fireworks base_url)
   MODEL_API_KEY=$(bg agentic-demo/fireworks api_key)
   AGENT_MODEL=${AGENT_MODEL:-accounts/fireworks/models/qwen3p7-plus}
+elif [ "$MODEL_PROVIDER" = "steppingstone" ]; then
+  MODEL_BASE_URL=$(bao kv get -field=base_url kv/steppingstone)
+  MODEL_API_KEY=$(bao kv get -field=api_key kv/steppingstone)
+  AGENT_MODEL=${AGENT_MODEL:-MiniMaxAI/MiniMax-M2.5}
 else
   MODEL_BASE_URL=${MODEL_BASE_URL:-}
   MODEL_API_KEY=${MODEL_API_KEY:-}
@@ -129,6 +133,7 @@ ANTHROPIC_API_KEY=$(bg agentic-demo/anthropic api_key)
 MODEL_BASE_URL=$MODEL_BASE_URL
 MODEL_API_KEY=$MODEL_API_KEY
 AGENT_MODEL=$AGENT_MODEL
+AGENT_MAX_TOKENS=${AGENT_MAX_TOKENS:-16384}
 AGENT_DEFAULT_MODE=read-write
 WEBHOOK_SECRET=$(bg agentic-demo/webhook shared_secret)
 MM_URL=https://chat.$DOMAIN

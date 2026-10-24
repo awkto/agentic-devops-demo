@@ -2,8 +2,15 @@
 # Undo every cust1 scenario, whichever way it was fixed. Database-side resets
 # live in customer/db/break/restore-db.sh on db1.
 set -x
-# port squatter
+# port squatters
 pkill -f "http.server 80" || true
+pkill -f "http.server 3000" || true
+# hosts-file shadow of db1
+sed -i '/[[:space:]]db1\.gobyl\.cc/d' /etc/hosts
+rm -f /etc/hosts.bak-* /opt/app/config.json.bak-*
+# deleted spool file held open
+pkill -f "^log-shipper" || true
+rm -f /var/tmp/.spool.dat
 # masked unit
 systemctl unmask nginx || true
 # firewall
@@ -27,5 +34,10 @@ rm -rf /var/log/app-debug
   rm -f /etc/nginx/sites-enabled/default
   ln -s /etc/nginx/sites-available/default /etc/nginx/sites-enabled/default
 }
-systemctl start nginx || true
+# shadow config: watchdog first, then the immutable drop-in
+rm -f /etc/cron.d/nginx-failover
+chattr -i /etc/systemd/system/nginx.service.d/*.conf 2>/dev/null || true
+rm -rf /etc/systemd/system/nginx.service.d /usr/local/lib/nginx-failover /etc/nginx/legacy
+systemctl daemon-reload
+systemctl restart nginx || true
 systemctl restart nodeapp
