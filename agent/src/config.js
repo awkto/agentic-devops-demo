@@ -42,6 +42,14 @@ export const config = {
     roleId: process.env.BAO_ROLE_ID || '',
     secretId: process.env.BAO_SECRET_ID || '',
   },
+  // /admin area: Keycloak OIDC (client "agent-admin", realm roles agent-admin /
+  // agent-viewer). Disabled (routes answer 503) when the secret is not set.
+  admin: {
+    issuer: process.env.ADMIN_OIDC_ISSUER || `https://sso.${process.env.DOMAIN}/realms/demo`,
+    clientId: process.env.ADMIN_OIDC_CLIENT_ID || 'agent-admin',
+    clientSecret: process.env.AGENT_ADMIN_CLIENT_SECRET || '',
+    redirectUri: process.env.ADMIN_REDIRECT_URI || `https://agent.${process.env.DOMAIN}/admin/callback`,
+  },
   icinga: {
     url: process.env.ICINGA_API_URL || '',
     user: process.env.ICINGA_API_USER || 'agent',

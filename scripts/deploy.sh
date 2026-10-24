@@ -60,6 +60,13 @@ sync_repo() {
     "$ROOT/" "root@$1:/opt/demo/"
 }
 
+# agent /admin OIDC client secret: generated once, kept in the operator vault
+AGENT_ADMIN_CLIENT_SECRET=$(bao kv get -field=agent_admin_client_secret agentic-demo/keycloak 2>/dev/null || true)
+if [ -z "$AGENT_ADMIN_CLIENT_SECRET" ]; then
+  AGENT_ADMIN_CLIENT_SECRET=$(openssl rand -hex 24)
+  bao kv patch agentic-demo/keycloak agent_admin_client_secret="$AGENT_ADMIN_CLIENT_SECRET" >/dev/null
+fi
+
 echo "==> render core env"
 CORE_ENV=$(mktemp)
 cat > "$CORE_ENV" <<EOF
@@ -77,6 +84,7 @@ BAO_DEMO_TOKEN=$(bg agentic-demo/openbao-demo root_token)
 WEBHOOK_SECRET=$(bg agentic-demo/webhook shared_secret)
 DEMO_USER_PASSWORD=$(bg agentic-demo/demo-users password)
 OIDC_CLIENT_SECRET=$(bg agentic-demo/keycloak oidc_client_secret)
+AGENT_ADMIN_CLIENT_SECRET=$AGENT_ADMIN_CLIENT_SECRET
 EOF
 
 echo "==> database host"
@@ -149,6 +157,7 @@ BAO_SECRET_ID=$BAO_SECRET_ID
 ICINGA_API_URL=https://icinga-api.$DOMAIN
 ICINGA_API_USER=agent
 ICINGA_API_PASSWORD=$(bg agentic-demo/icinga api_password)
+AGENT_ADMIN_CLIENT_SECRET=$AGENT_ADMIN_CLIENT_SECRET
 EOF
 ssh $SSH_OPTS "root@$AGENT_IP" "mkdir -p /opt/agent"
 scp $SSH_OPTS "$AGENT_ENV" "root@$AGENT_IP:/opt/agent/.env"

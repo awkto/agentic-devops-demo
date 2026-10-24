@@ -22,6 +22,7 @@ fi
   -f docker-compose.yml -f /opt/demo/stack/core/zammad-override.yml up -d)
 
 bash setup/mattermost-init.sh
+bash setup/agent-admin-init.sh
 bash setup/wiki-init.sh
 bash setup/bao-init.sh
 bash setup/icinga-init.sh

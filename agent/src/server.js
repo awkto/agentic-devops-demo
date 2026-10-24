@@ -4,6 +4,7 @@ import { config } from './config.js';
 import * as mm from './mattermost.js';
 import { Incident } from './incident.js';
 import * as alerts from './alerts.js';
+import { adminRouter } from './admin.js';
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -117,6 +118,8 @@ app.get('/', (_req, res) => {
   }
   res.type('text/plain').send(lines.join('\n'));
 });
+
+app.use('/admin', adminRouter());
 
 app.get('/healthz', (_req, res) => res.json({ ok: true }));
 
