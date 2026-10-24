@@ -165,15 +165,16 @@ export class Incident {
           `Automated ticket for Icinga alert.\n\nHost: ${t.host}\nService: ${t.service}\nState: ${t.state}\nOutput: ${t.output}`
         );
         this.state.ticketId = ticket.id;
-        ticketInfo = `Zammad ticket #${ticket.number} (id ${ticket.id}) was created for this alert.`;
-        await this.postUpdate(`Created Zammad ticket #${ticket.number} for this alert.`);
+        const link = zammad.ticketLink(ticket);
+        ticketInfo = `Zammad ticket ${link} (id ${ticket.id}) was created for this alert.`;
+        await this.postUpdate(`Created Zammad ticket ${link} for this alert.`);
       } catch (err) {
         console.error('zammad ticket create failed', err);
         ticketInfo = 'Ticket creation in Zammad failed; continue without a ticket and mention this in the summary.';
         await this.postUpdate('Could not create a Zammad ticket (API error). Continuing without one.');
       }
     } else {
-      ticketInfo = `This incident came from Zammad ticket id ${this.state.ticketId}.`;
+      ticketInfo = `This incident came from Zammad ticket ${zammad.ticketLink({ id: this.state.ticketId, number: t.ticketNumber })} (id ${this.state.ticketId}).`;
     }
     return incidentPrompt(t, this.state.mode, ticketInfo);
   }

@@ -17,6 +17,12 @@ async function api(path, method = 'GET', body) {
   return res.json();
 }
 
+// Agent-UI link to a ticket. Uses the internal id, not the ticket number.
+export const ticketUrl = (id) => `${url}/#ticket/zoom/${id}`;
+
+// Markdown link with the ticket number as text, for posts and tool results.
+export const ticketLink = (t) => `[#${t.number}](${ticketUrl(t.id)})`;
+
 export async function createTicket(title, body) {
   return api('/tickets', 'POST', {
     title,
@@ -43,7 +49,7 @@ export async function listOpen() {
   const tickets = await api('/tickets?expand=true&per_page=50');
   return tickets
     .filter((t) => ['new', 'open'].includes(t.state))
-    .map((t) => ({ id: t.id, number: t.number, title: t.title, state: t.state, created_at: t.created_at }));
+    .map((t) => ({ id: t.id, number: t.number, title: t.title, state: t.state, created_at: t.created_at, url: ticketUrl(t.id) }));
 }
 
 export async function listRecent(hours = 24) {
@@ -58,6 +64,7 @@ export async function listRecent(hours = 24) {
       state: t.state,
       created_at: t.created_at,
       updated_at: t.updated_at,
+      url: ticketUrl(t.id),
     }));
 }
 

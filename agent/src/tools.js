@@ -10,6 +10,7 @@ import * as zammad from './zammad.js';
 import * as icinga from './icinga.js';
 import * as alerts from './alerts.js';
 import * as activity from './activity.js';
+import * as mm from './mattermost.js';
 
 const execFileP = promisify(execFile);
 
@@ -112,23 +113,31 @@ const defs = [
       'so this is the only way to see that an outage you are looking at may be work an engineer asked you ' +
       'for a few minutes ago in another thread. Check it before treating an alert as an unexplained fault.',
     shape: { hours: z.number().optional(), limit: z.number().optional() },
-    run: async (incident, { hours, limit }) =>
-      JSON.stringify(activity.recent({
+    run: async (incident, { hours, limit }) => {
+      const res = activity.recent({
         hours: hours ?? 4,
         limit: limit ?? 60,
         excludeThread: incident.rootId || undefined,
-      })),
+      });
+      for (const [id, t] of Object.entries(res.threads)) t.url = mm.threadUrl(id);
+      return JSON.stringify(res);
+    },
   },
 
   {
     name: 'get_wiki_page',
-    description: 'Fetch the raw wikitext of a documentation page. Useful pages: "Customer systems", "Cust1", "Maintenance calendar", "Process incident response".',
+    description: 'Fetch the raw wikitext of a documentation page, preceded by its canonical URL (link to it with that URL). Useful pages: "Customer systems", "Cust1", "Maintenance calendar", "Process incident response".',
     shape: { title: z.string() },
     run: async (_incident, { title }) => {
-      const t = encodeURIComponent(title.replace(/ /g, '_'));
+      // Resolve the real title (case, redirects) so the URL we hand out works.
+      const q = new URLSearchParams({ action: 'query', titles: title, redirects: '1', format: 'json' });
+      const info = await fetch(`${config.wiki.url}/api.php?${q}`);
+      const page = info.ok && Object.values((await info.json()).query?.pages || {})[0];
+      if (!page || page.missing !== undefined || page.invalid !== undefined) return `page not found: ${title}`;
+      const t = encodeURIComponent(page.title.replace(/ /g, '_'));
       const res = await fetch(`${config.wiki.url}/index.php?title=${t}&action=raw`);
       if (!res.ok) return `page not found: ${title}`;
-      return res.text();
+      return `URL: ${config.wiki.url}/index.php/${t}\n\n${await res.text()}`;
     },
   },
 
@@ -219,7 +228,7 @@ const defs = [
 
   {
     name: 'list_open_tickets',
-    description: 'List open Zammad tickets, to spot known work in progress.',
+    description: 'List open Zammad tickets, to spot known work in progress. Each has a url to link to.',
     shape: {},
     run: async () => JSON.stringify(await zammad.listOpen()),
   },
@@ -249,7 +258,7 @@ const defs = [
 
   {
     name: 'zammad_recent_tickets',
-    description: 'List tickets updated within the last N hours (default 24), any state.',
+    description: 'List tickets updated within the last N hours (default 24), any state. Each has a url to link to.',
     shape: { hours: z.number().optional() },
     run: async (_incident, { hours }) => JSON.stringify(await zammad.listRecent(hours ?? 24)),
   },
@@ -269,7 +278,7 @@ const defs = [
       if (!incident.state.ticketId) return 'no ticket attached to this incident';
       await zammad.addNote(incident.state.ticketId, note);
       if (state) await zammad.setState(incident.state.ticketId, state);
-      return 'ticket updated';
+      return `ticket updated: ${zammad.ticketUrl(incident.state.ticketId)}`;
     },
   },
 ];

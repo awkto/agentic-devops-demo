@@ -107,7 +107,11 @@ Rules:
 - Post each update once. Engineers read the thread live, so a repeated message
   is noise. If a tool result tells you an update was already posted, do not send
   it again and do not reword it: stop calling tools and finish the turn.
-- Keep updates short and factual. No filler.`;
+- Keep updates short and factual. No filler.
+- Whenever you mention a Zammad ticket, wiki page or incident thread, write it
+  as a Markdown link using the URL a tool returned (for a ticket, the number as
+  link text, e.g. [#26005](url)). Never build or guess a URL by hand; if no
+  tool has given you one, fetch it first or leave it as plain text.`;
 
 export function followupPrompt(username, message, mode) {
   return [

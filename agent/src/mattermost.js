@@ -58,6 +58,9 @@ export async function thread(rootId, limit = 40) {
   return out;
 }
 
+// Permalink to a post; for a thread root it opens the whole thread.
+export const threadUrl = (postId) => `${url}/${config.mattermost.team}/pl/${postId}`;
+
 export function isSelf(userId) {
   return userId === botUserId;
 }
