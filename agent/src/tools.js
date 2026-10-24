@@ -28,7 +28,18 @@ const READ_CMDS = new Set([
 const STRICT_PATTERNS = /\bfind\b.*\s-(delete|exec|ok)|\bcurl\b.*\s(-X|--request|-d|--data\S*|-T|--upload-file|-F)\b|\bnginx\s+-s\b|\$\(/;
 const WRITE_PATTERNS = /[><`]|\brm\b|\bmv\b|\bcp\b|\bdd\b|\bkill\b|\bpkill\b|\bshutdown\b|\breboot\b|\btruncate\b|\bfallocate\b|\bchmod\b|\bchown\b|\btee\b|\bsed\s+-i\b|\bapt\b|\bapt-get\b|systemctl\s+(start|stop|restart|reload|mask|unmask|enable|disable)\b|\bmkdir\b|\btouch\b|\buseradd\b|\bpasswd\b/;
 
-const isReadOnlyProfile = (incident) => settings.profile(incident.profile)?.mode === 'read-only';
+// Tools with side effects take none|read|write; the rest only none|read.
+// A profile in read-only mode reads on every side-effect tool by default.
+export const SIDE_EFFECT_TOOLS = ['ssh_exec', 'update_ticket', 'post_update'];
+export const toolLevel = (profile, tool) => {
+  const set = settings.toolLevels(profile)[tool];
+  if (set) return set;
+  if (!SIDE_EFFECT_TOOLS.includes(tool)) return 'read';
+  return settings.profile(profile)?.mode === 'read-only' ? 'read' : 'write';
+};
+export const toolLevelOptions = (tool) => (SIDE_EFFECT_TOOLS.includes(tool) ? ['none', 'read', 'write'] : ['none', 'read']);
+// Read level on a side-effect tool reuses the read-only enforcement below.
+const readOnlyFor = (incident, tool) => toolLevel(incident.profile, tool) === 'read';
 
 function strictViolation(command) {
   if (readOnlyViolation(command) || STRICT_PATTERNS.test(command)) return true;
@@ -112,8 +123,8 @@ const defs = [
       'instead - use that to tell an engineer in an earlier thread that their request has caused an alert.',
     shape: { message: z.string(), thread_id: z.string().optional() },
     run: async (incident, { message, thread_id }) => {
-      if (thread_id && thread_id !== incident.rootId && isReadOnlyProfile(incident)) {
-        return 'BLOCKED: this agent profile is read-only, it may only post in its own thread.';
+      if (thread_id && thread_id !== incident.rootId && readOnlyFor(incident, 'post_update')) {
+        return 'BLOCKED: this agent has read-only access to post_update, it may only post in its own thread.';
       }
       const refused = incident.guardPost(message, thread_id);
       if (refused) return refused;
@@ -201,8 +212,8 @@ const defs = [
       'blocked, whatever the incident mode.',
     shape: { customer: z.string().describe('customer name, e.g. cust1'), command: z.string() },
     run: async (incident, { customer, command }) => {
-      if (isReadOnlyProfile(incident) && strictViolation(command)) {
-        return `BLOCKED: this agent profile is read-only, command not allowed: ${command}`;
+      if (readOnlyFor(incident, 'ssh_exec') && strictViolation(command)) {
+        return `BLOCKED: this agent has read-only access to ssh_exec, command not allowed: ${command}`;
       }
       if (incident.state.mode === 'read-only' && readOnlyViolation(command)) {
         return `BLOCKED: incident is in read-only mode, command not on the diagnostic allowlist: ${command}`;
@@ -295,7 +306,7 @@ const defs = [
     description: 'Add a note to the incident Zammad ticket, optionally changing its state (open, closed).',
     shape: { note: z.string(), state: z.enum(['open', 'closed']).optional() },
     run: async (incident, { note, state }) => {
-      if (isReadOnlyProfile(incident)) return 'BLOCKED: this agent profile is read-only, it cannot update or close tickets.';
+      if (readOnlyFor(incident, 'update_ticket')) return 'BLOCKED: this agent profile has read-only access to tickets, it cannot update or close tickets.';
       if (!incident.state.ticketId) return 'no ticket attached to this incident';
       await zammad.addNote(incident.state.ticketId, note);
       if (state) await zammad.setState(incident.state.ticketId, state);
@@ -306,17 +317,20 @@ const defs = [
 
 const text = (s) => ({ content: [{ type: 'text', text: s }] });
 
+export const toolNames = defs.map((d) => d.name);
+const offered = (incident) => defs.filter((d) => toolLevel(incident.profile, d.name) !== 'none');
+
 export function buildOpsServer(incident) {
-  const tools = defs.map((d) =>
-    tool(d.name, d.description, d.shape, async (args) => text(await d.run(incident, args)))
+  const tools = offered(incident).map((d) =>
+    tool(d.name, d.description, d.shape, async (args) => text(await runTool(incident, d.name, args)))
   );
   return createSdkMcpServer({ name: 'ops', version: '1.0.0', tools });
 }
 
 export const allowedToolNames = defs.map((d) => `mcp__ops__${d.name}`);
 
-export function openaiToolSchemas() {
-  return defs.map((d) => {
+export function openaiToolSchemas(incident) {
+  return offered(incident).map((d) => {
     const { $schema, ...parameters } = z.toJSONSchema(z.object(d.shape));
     return { type: 'function', function: { name: d.name, description: d.description, parameters } };
   });
@@ -326,6 +340,7 @@ export async function runTool(incident, name, args) {
   if (!settings.isEnabled(incident.profile)) return 'BLOCKED: agent disabled by admin. Do not run any more tools; stop and wait.';
   const d = defs.find((t) => t.name === name);
   if (!d) return `unknown tool: ${name}`;
+  if (toolLevel(incident.profile, name) === 'none') return `BLOCKED: an admin has removed ${name} from this agent. You have no access to it. Do not get the same information another way (no ssh, curl or other tools as a workaround); tell the engineer you have no access to ${name} and stop.`;
   const parsed = z.object(d.shape).safeParse(args ?? {});
   if (!parsed.success) return `invalid arguments for ${name}: ${parsed.error.message}`;
   return d.run(incident, parsed.data);

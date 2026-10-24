@@ -50,3 +50,18 @@ export function updateProfile(name, f) {
   db.prepare('UPDATE profiles SET mode = ?, takes_alerts = ?, allowed_users = ?, allowed_channels = ? WHERE name = ?')
     .run(f.mode, f.takes_alerts ? 1 : 0, csv(f.allowed_users).join(','), csv(f.allowed_channels).join(','), name);
 }
+
+// Per-agent tool levels (none|read|write). Only overrides are stored; a tool
+// without a row follows the default in tools.js. Read on every call, so a
+// change applies to the next turn without a restart.
+db.exec('CREATE TABLE IF NOT EXISTS profile_tools (profile TEXT NOT NULL, tool TEXT NOT NULL, level TEXT NOT NULL, PRIMARY KEY (profile, tool))');
+export const toolLevels = (profile) =>
+  Object.fromEntries(db.prepare('SELECT tool, level FROM profile_tools WHERE profile = ?').all(profile).map((r) => [r.tool, r.level]));
+// level null clears the override (back to the default).
+export function setToolLevel(profile, tool, level) {
+  if (level) {
+    db.prepare('INSERT INTO profile_tools (profile, tool, level) VALUES (?,?,?) ON CONFLICT(profile, tool) DO UPDATE SET level = excluded.level').run(profile, tool, level);
+  } else {
+    db.prepare('DELETE FROM profile_tools WHERE profile = ? AND tool = ?').run(profile, tool);
+  }
+}

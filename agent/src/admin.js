@@ -5,6 +5,7 @@ import * as audit from './audit.js';
 import * as settings from './settings.js';
 import * as mm from './mattermost.js';
 import * as zammad from './zammad.js';
+import { toolNames, toolLevel, toolLevelOptions } from './tools.js';
 
 // /admin: Keycloak OIDC authorization-code login, signed session cookie.
 // Roles come from the ID token "roles" claim. agent-admin may edit,
@@ -110,14 +111,29 @@ function agentRow(p, canEdit) {
   if (!canEdit) {
     return `<div id="agent-${n}">${head}<table>
 <tr><th>Mode</th><td>${esc(p.mode)}</td></tr><tr><th>Takes alerts</th><td>${p.takes_alerts ? 'yes' : 'no'}</td></tr>
-<tr><th>Allowed users</th><td>${esc(p.allowed_users) || 'anyone'}</td></tr><tr><th>Allowed channels</th><td>${esc(p.allowed_channels)}</td></tr></table></div>`;
+<tr><th>Allowed users</th><td>${esc(p.allowed_users) || 'anyone'}</td></tr><tr><th>Allowed channels</th><td>${esc(p.allowed_channels)}</td></tr></table>${toolGrid(p, false)}</div>`;
   }
   return `<div id="agent-${n}">${head}<form method="post" action="/admin/agents/${n}">
 <label>Mode <select name="mode">${['read-write', 'read-only'].map((m) => `<option${m === p.mode ? ' selected' : ''}>${m}</option>`).join('')}</select></label>
 <label><input type="checkbox" name="takes_alerts" value="1"${p.takes_alerts ? ' checked' : ''}> takes alerts</label>
 <label>Allowed users <input name="allowed_users" value="${esc(p.allowed_users)}" placeholder="anyone"></label>
 <label>Allowed channels <input name="allowed_channels" value="${esc(p.allowed_channels)}"></label>
-<button>Save</button></form></div>`;
+<button>Save</button></form>${toolGrid(p, true)}</div>`;
+}
+
+function toolGrid(p, canEdit) {
+  const n = esc(p.name);
+  const rows = toolNames.map((t) => {
+    const cur = toolLevel(p.name, t);
+    const cell = canEdit
+      ? `<select name="tool_${esc(t)}">${toolLevelOptions(t).map((l) => `<option${l === cur ? ' selected' : ''}>${l}</option>`).join('')}</select>`
+      : esc(cur);
+    return `<tr><td>${esc(t)}</td><td>${cell}</td></tr>`;
+  }).join('');
+  const table = `<table id="tools-${n}"><tr><th>Tool</th><th>Level</th></tr>${rows}</table>`;
+  return canEdit
+    ? `<details><summary>Tool permissions</summary><form method="post" action="/admin/agents/${n}/tools">${table}<button>Save tools</button></form></details>`
+    : `<details><summary>Tool permissions</summary>${table}</details>`;
 }
 
 export function adminRouter({ onDisable } = {}) {
@@ -222,6 +238,29 @@ ${settings.profiles().map((p) => agentRow(p, a.role === 'agent-admin')).join('')
       audit.record({ profile: name, kind: 'admin_change', actor: req.admin.user,
         summary: `${name} ${f}: "${old[f]}" -> "${now[f]}" by ${req.admin.user}`,
         detail: { setting: `profile.${name}.${f}`, old: old[f], new: now[f] } });
+    }
+    res.redirect(303, '/admin');
+  });
+
+  router.post('/agents/:name/tools', requireAdmin, express.urlencoded({ extended: false }), (req, res) => {
+    const { name } = req.params;
+    if (!settings.profile(name)) return res.status(404).json({ error: 'no such agent' });
+    const b = req.body || {};
+    const todo = [];
+    for (const t of toolNames) {
+      const want = b[`tool_${t}`];
+      if (want === undefined) continue;
+      if (!toolLevelOptions(t).includes(want)) return res.status(400).json({ error: `bad level for ${t}` });
+      todo.push([t, want, toolLevel(name, t)]);
+    }
+    for (const [t, want, old] of todo) {
+      if (want === old) continue;
+      // Store only what differs from the default, which depends on the profile mode.
+      settings.setToolLevel(name, t, null);
+      if (toolLevel(name, t) !== want) settings.setToolLevel(name, t, want);
+      audit.record({ profile: name, kind: 'admin_change', actor: req.admin.user,
+        summary: `${name} tool ${t}: ${old} -> ${want} by ${req.admin.user}`,
+        detail: { setting: `profile.${name}.tool.${t}`, old, new: want } });
     }
     res.redirect(303, '/admin');
   });

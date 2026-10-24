@@ -2,7 +2,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import { config } from './config.js';
 import * as zammad from './zammad.js';
 import * as sessions from './sessions.js';
-import { buildOpsServer, allowedToolNames, openaiToolSchemas, runTool } from './tools.js';
+import { buildOpsServer, allowedToolNames, openaiToolSchemas, runTool, toolNames, toolLevel } from './tools.js';
 import { runTurn } from './oaichat.js';
 import * as activity from './activity.js';
 import * as audit from './audit.js';
@@ -256,11 +256,18 @@ export class Incident {
       [{ role: 'system', content: systemPrompt }];
     // Map root -> session now, so a restart mid-incident can still resume it.
     this.onSession?.(this);
-    const tools = openaiToolSchemas();
 
     let input = initialPrompt;
     try {
       while (true) {
+        // Tools an admin removed: say so in the system prompt, or the model
+        // just gets the same information another way (e.g. curl over ssh).
+        const removed = toolNames.filter((t) => toolLevel(this.profile, t) === 'none');
+        if (this.messages[0]?.role === 'system') {
+          this.messages[0].content = systemPrompt + (removed.length
+            ? `\n\nAccess removed by an administrator: ${removed.join(', ')}. You have no access to these tools or to the information they provide. Do not obtain it another way (no ssh, curl or other tools as a workaround); if asked, say you have no access to it.`
+            : '');
+        }
         this.messages.push({ role: 'user', content: input });
         this.busy = true;
         this.acked = false;
@@ -270,7 +277,7 @@ export class Incident {
           apiKey: config.modelApiKey,
           model: config.model,
           messages: this.messages,
-          tools,
+          tools: openaiToolSchemas(this),
           invoke: (name, args) => this.auditedTool(name, args),
           onCall: (c) => this.audit('model_call', `${c.model} ${c.latencyMs}ms, ${c.chars} chars, ${c.toolCalls} tool calls`, c),
           isAborted: () => this.done || !settings.isEnabled(this.profile),
