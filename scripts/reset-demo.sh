@@ -71,8 +71,12 @@ sleep 5
 printf '    site  %s\n' "$(curl -s -o /dev/null -m 10 -w '%{http_code}' "http://cust1.$DOMAIN/")"
 printf '    api   %s\n' "$(curl -s -o /dev/null -m 10 -w '%{http_code}' "http://cust1.$DOMAIN:3000/api/positions")"
 ICINGA_PW=$(bg agentic-demo/icinga api_password)
-curl -sk -u "agent:$ICINGA_PW" "https://icinga-api.$DOMAIN/v1/objects/services" \
-  -H 'Accept: application/json' \
-  | jq -r '.results[] | "    \(.attrs.host_name)/\(.attrs.name)  \(if .attrs.state == 0 then "OK" else "STATE \(.attrs.state)" end)"' 2>/dev/null \
-  || echo "    (icinga query failed)"
+# Icinga can still be reloading right after the reset, so retry for a bit.
+for _ in 1 2 3 4 5 6; do
+  out=$(curl -sk -m 15 -u "agent:$ICINGA_PW" "https://icinga-api.$DOMAIN/v1/objects/services" \
+    -H 'Accept: application/json' \
+    | jq -r '.results[] | "    \(.attrs.host_name)/\(.attrs.name)  \(if .attrs.state == 0 then "OK" else "STATE \(.attrs.state)" end)"' 2>/dev/null) && [ -n "$out" ] && break
+  sleep 10
+done
+echo "${out:-    (icinga query failed)}"
 echo "==> reset complete"
