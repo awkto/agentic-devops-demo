@@ -5,6 +5,8 @@ import * as mm from './mattermost.js';
 import { Incident } from './incident.js';
 import * as alerts from './alerts.js';
 import { adminRouter } from './admin.js';
+import * as settings from './settings.js';
+import * as audit from './audit.js';
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -42,6 +44,11 @@ function auth(req, res, next) {
   return res.status(401).json({ error: 'bad token' });
 }
 
+// Kill switch: triggers for a disabled agent are dropped but still audited.
+function ignoredWhileDisabled(summary, rootId, actor) {
+  audit.record({ kind: 'trigger', rootId, actor, summary: `${summary} (ignored: disabled)`, detail: { note: 'ignored: disabled' } });
+}
+
 function launch(key, trigger, opts) {
   const existing = incidents.get(key);
   if (existing && !existing.done) return existing;
@@ -69,6 +76,10 @@ app.post('/webhook/icinga', auth, (req, res) => {
   const key = `icinga:${b.host}:${b.service}`;
   console.log(`icinga webhook: ${key} type=${b.type} state=${b.state}`);
   alerts.record(b);
+  if (!settings.isEnabled()) {
+    ignoredWhileDisabled(`icinga ${b.type || ''} ${b.host}/${b.service} ${b.state}`, null, 'icinga');
+    return res.json({ ok: true, action: 'ignored-disabled' });
+  }
   if (b.type === 'RECOVERY') {
     const inc = incidents.get(key);
     if (inc && !inc.done) {
@@ -98,6 +109,10 @@ app.post('/webhook/zammad', auth, (req, res) => {
   if ((t.title || '').startsWith('[icinga]')) {
     return res.json({ ok: true, action: 'ignored-own-ticket' });
   }
+  if (!settings.isEnabled()) {
+    ignoredWhileDisabled(`zammad ticket #${t.number}: ${t.title}`, null, 'zammad');
+    return res.json({ ok: true, action: 'ignored-disabled' });
+  }
   const key = `zammad:${t.id}`;
   if (incidents.get(key) && !incidents.get(key).done) {
     return res.json({ ok: true, action: 'already-active' });
@@ -121,7 +136,11 @@ app.get('/', (_req, res) => {
   res.type('text/plain').send(lines.join('\n'));
 });
 
-app.use('/admin', adminRouter());
+app.use('/admin', adminRouter({
+  onDisable: async (_profile, admin) => {
+    for (const inc of incidents.values()) if (!inc.done) await inc.disabledBy(admin);
+  },
+}));
 
 app.get('/healthz', (_req, res) => res.json({ ok: true }));
 
@@ -131,6 +150,14 @@ const main = async () => {
   await mm.init();
   mm.listen(async (post) => {
     const username = await mm.userName(post.user_id);
+
+    if (!settings.isEnabled()) {
+      const live = post.root_id && (byRoot.get(post.root_id) || finished[post.root_id]);
+      if (live || MENTION.test(post.message)) {
+        ignoredWhileDisabled(`message from ${username}: ${audit.clip(post.message, 120)}`, post.root_id || post.id, username);
+      }
+      return;
+    }
 
     if (post.root_id) {
       // reply in a thread: active incident gets it injected live

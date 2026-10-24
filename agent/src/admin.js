@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import express from 'express';
 import { config } from './config.js';
 import * as audit from './audit.js';
+import * as settings from './settings.js';
 import * as mm from './mattermost.js';
 import * as zammad from './zammad.js';
 
@@ -98,7 +99,7 @@ async function tokenExchange(code) {
   return r.json();
 }
 
-export function adminRouter() {
+export function adminRouter({ onDisable } = {}) {
   const router = express.Router();
 
   if (!cfg.clientSecret) {
@@ -167,8 +168,30 @@ export function adminRouter() {
 <p>Logged in as <b id="user">${esc(a.user)}</b> (${esc(a.name)}), role <b id="role">${esc(a.role)}</b>
 ${a.role === 'agent-admin' ? '' : '<span class="muted">(read-only)</span>'}
  &middot; <a href="/admin/logout">log out</a></p>
-<section><h2>Agents</h2><p class="muted">Not built yet.</p></section>
+<section><h2>Agents</h2><table><tr><th>Agent</th><th>Status</th><th></th></tr>
+${settings.PROFILES.map((p) => {
+  const on = settings.isEnabled(p);
+  const btn = a.role === 'agent-admin'
+    ? `<form method="post" action="/admin/agents/${esc(p)}/${on ? 'disable' : 'enable'}"><button>${on ? 'Disable' : 'Enable'}</button></form>`
+    : '<span class="muted">read-only</span>';
+  return `<tr><td>${esc(p)}</td><td id="status-${esc(p)}">${on ? 'enabled' : '<b>disabled</b>'}</td><td>${btn}</td></tr>`;
+}).join('')}</table></section>
 <section><h2>Audit</h2><p><a href="/admin/audit">Audit log</a>: triggers, model calls, tool calls, posts and ticket changes.</p></section>`));
+  });
+
+  router.post('/agents/:name/:action(enable|disable)', requireAdmin, async (req, res) => {
+    const { name, action } = req.params;
+    if (!settings.PROFILES.includes(name)) return res.status(404).json({ error: 'no such agent' });
+    const was = settings.isEnabled(name);
+    const now = action === 'enable';
+    if (was !== now) {
+      settings.setEnabled(name, now);
+      audit.record({ profile: name, kind: 'admin_change', actor: req.admin.user,
+        summary: `${name} ${now ? 'enabled' : 'disabled'} by ${req.admin.user}`,
+        detail: { setting: `agent.${name}.enabled`, old: was, new: now } });
+      if (!now) await onDisable?.(name, req.admin.user);
+    }
+    res.redirect(303, '/admin');
   });
 
   const filters = (q) => ({ kind: q.kind, root: q.root, from: q.from, to: q.to });

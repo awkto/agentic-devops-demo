@@ -11,6 +11,7 @@ import * as icinga from './icinga.js';
 import * as alerts from './alerts.js';
 import * as activity from './activity.js';
 import * as mm from './mattermost.js';
+import * as settings from './settings.js';
 
 const execFileP = promisify(execFile);
 
@@ -302,6 +303,7 @@ export function openaiToolSchemas() {
 }
 
 export async function runTool(incident, name, args) {
+  if (!settings.isEnabled(incident.profile)) return 'BLOCKED: agent disabled by admin. Do not run any more tools; stop and wait.';
   const d = defs.find((t) => t.name === name);
   if (!d) return `unknown tool: ${name}`;
   const parsed = z.object(d.shape).safeParse(args ?? {});

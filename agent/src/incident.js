@@ -7,6 +7,7 @@ import { buildOpsServer, allowedToolNames, openaiToolSchemas, runTool } from './
 import { runTurn } from './oaichat.js';
 import * as activity from './activity.js';
 import * as audit from './audit.js';
+import * as settings from './settings.js';
 import { systemPrompt, incidentPrompt, followupPrompt, mentionPrompt } from './prompts.js';
 
 const CLOSE = Symbol('close');
@@ -15,6 +16,7 @@ export class Incident {
   // opts: { rootId, resume, mode, ticketId } for follow-up and mention sessions
   constructor(key, trigger, opts = {}) {
     this.key = key;
+    this.profile = 'ops';
     this.trigger = trigger;
     this.state = {
       mode: opts.mode || config.defaultMode,
@@ -109,6 +111,12 @@ export class Incident {
     clearTimeout(this.idleTimer);
     this.enqueue(CLOSE);
     if (reason) mm.post(`(${reason})`, this.rootId).catch(() => {});
+  }
+
+  // Kill switch hit: cut the in-flight model call and tell the thread.
+  async disabledBy(admin) {
+    try { this.aborter?.abort(); } catch {}
+    if (this.rootId) await mm.post(`Agent disabled by ${admin}.`, this.rootId).catch(() => {});
   }
 
   async stop() {
@@ -235,7 +243,6 @@ export class Incident {
     this.sessionId = this.resume || crypto.randomUUID();
     this.messages = (this.resume && sessions.load(this.resume)) ||
       [{ role: 'system', content: systemPrompt }];
-    this.aborter = new AbortController();
     // Map root -> session now, so a restart mid-incident can still resume it.
     this.onSession?.(this);
     const tools = openaiToolSchemas();
@@ -246,6 +253,7 @@ export class Incident {
         this.messages.push({ role: 'user', content: input });
         this.busy = true;
         this.acked = false;
+        this.aborter = new AbortController();
         const r = await runTurn({
           baseUrl: config.modelBaseUrl,
           apiKey: config.modelApiKey,
@@ -254,7 +262,7 @@ export class Incident {
           tools,
           invoke: (name, args) => this.auditedTool(name, args),
           onCall: (c) => this.audit('model_call', `${c.model} ${c.latencyMs}ms, ${c.chars} chars, ${c.toolCalls} tool calls`, c),
-          isAborted: () => this.done,
+          isAborted: () => this.done || !settings.isEnabled(this.profile),
           injectUser: () => this.drainQueued(),
           onBatch: () => {
             sessions.save(this.sessionId, this.messages);
