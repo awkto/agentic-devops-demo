@@ -117,7 +117,7 @@ if [ "$MODEL_PROVIDER" = "fireworks" ]; then
 elif [ "$MODEL_PROVIDER" = "steppingstone" ]; then
   MODEL_BASE_URL=$(bao kv get -field=base_url kv/steppingstone)
   MODEL_API_KEY=$(bao kv get -field=api_key kv/steppingstone)
-  AGENT_MODEL=${AGENT_MODEL:-MiniMaxAI/MiniMax-M2.5}
+  AGENT_MODEL=${AGENT_MODEL:-deepseek-ai/DeepSeek-V4-Flash-0731}
 else
   MODEL_BASE_URL=${MODEL_BASE_URL:-}
   MODEL_API_KEY=${MODEL_API_KEY:-}
