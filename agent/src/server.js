@@ -1,7 +1,7 @@
 import express from 'express';
 import fs from 'fs';
 import { config } from './config.js';
-import * as mm from './mattermost.js';
+import * as mattermost from './mattermost.js';
 import { Incident } from './incident.js';
 import * as alerts from './alerts.js';
 import { adminRouter } from './admin.js';
@@ -25,6 +25,7 @@ function rememberSession(inc) {
   if (!inc.rootId || !inc.sessionId) return;
   finished[inc.rootId] = {
     sessionId: inc.sessionId,
+    profile: inc.profile,
     ticketId: inc.state.ticketId,
     mode: inc.state.mode,
   };
@@ -45,14 +46,17 @@ function auth(req, res, next) {
 }
 
 // Kill switch: triggers for a disabled agent are dropped but still audited.
-function ignoredWhileDisabled(summary, rootId, actor) {
-  audit.record({ kind: 'trigger', rootId, actor, summary: `${summary} (ignored: disabled)`, detail: { note: 'ignored: disabled' } });
+function ignoredWhileDisabled(summary, rootId, actor, profile) {
+  audit.record({ profile, kind: 'trigger', rootId, actor, summary: `${summary} (ignored: disabled)`, detail: { note: 'ignored: disabled' } });
 }
+
+// profile name -> Mattermost client (own bot token, own websocket)
+const clients = new Map();
 
 function launch(key, trigger, opts) {
   const existing = incidents.get(key);
   if (existing && !existing.done) return existing;
-  const inc = new Incident(key, trigger, { ...opts, onSession: rememberSession });
+  const inc = new Incident(key, trigger, { ...opts, mm: clients.get(opts.profile), onSession: rememberSession });
   incidents.set(key, inc);
   inc.run()
     .catch((err) => console.error(`incident ${key} run failed`, err))
@@ -71,15 +75,22 @@ function launch(key, trigger, opts) {
   return inc;
 }
 
+// Alerts and tickets go to the enabled profile that takes alerts.
+function alertProfile(summary, actor) {
+  const p = settings.alertProfile();
+  if (p) return p;
+  const off = settings.anyAlertProfile();
+  if (off) ignoredWhileDisabled(summary, null, actor, off.name);
+  return null;
+}
+
 app.post('/webhook/icinga', auth, (req, res) => {
   const b = req.body || {};
   const key = `icinga:${b.host}:${b.service}`;
   console.log(`icinga webhook: ${key} type=${b.type} state=${b.state}`);
   alerts.record(b);
-  if (!settings.isEnabled()) {
-    ignoredWhileDisabled(`icinga ${b.type || ''} ${b.host}/${b.service} ${b.state}`, null, 'icinga');
-    return res.json({ ok: true, action: 'ignored-disabled' });
-  }
+  const prof = alertProfile(`icinga ${b.type || ''} ${b.host}/${b.service} ${b.state}`, 'icinga');
+  if (!prof) return res.json({ ok: true, action: 'ignored-no-agent' });
   if (b.type === 'RECOVERY') {
     const inc = incidents.get(key);
     if (inc && !inc.done) {
@@ -97,7 +108,7 @@ app.post('/webhook/icinga', auth, (req, res) => {
     existing.resetIdleTimer();
     return res.json({ ok: true, action: 'problem-forwarded' });
   }
-  launch(key, { source: 'icinga', ...b });
+  launch(key, { source: 'icinga', ...b }, { profile: prof.name, channel: prof.channels[0] });
   res.json({ ok: true, action: 'incident-started' });
 });
 
@@ -109,10 +120,8 @@ app.post('/webhook/zammad', auth, (req, res) => {
   if ((t.title || '').startsWith('[icinga]')) {
     return res.json({ ok: true, action: 'ignored-own-ticket' });
   }
-  if (!settings.isEnabled()) {
-    ignoredWhileDisabled(`zammad ticket #${t.number}: ${t.title}`, null, 'zammad');
-    return res.json({ ok: true, action: 'ignored-disabled' });
-  }
+  const prof = alertProfile(`zammad ticket #${t.number}: ${t.title}`, 'zammad');
+  if (!prof) return res.json({ ok: true, action: 'ignored-no-agent' });
   const key = `zammad:${t.id}`;
   if (incidents.get(key) && !incidents.get(key).done) {
     return res.json({ ok: true, action: 'already-active' });
@@ -124,7 +133,7 @@ app.post('/webhook/zammad', auth, (req, res) => {
     title: t.title,
     body: req.body?.article?.body || '',
     customer: t.customer_id,
-  });
+  }, { profile: prof.name, channel: prof.channels[0] });
   res.json({ ok: true, action: 'incident-started' });
 });
 
@@ -137,79 +146,89 @@ app.get('/', (_req, res) => {
 });
 
 app.use('/admin', adminRouter({
-  onDisable: async (_profile, admin) => {
-    for (const inc of incidents.values()) if (!inc.done) await inc.disabledBy(admin);
+  onDisable: async (profile, admin) => {
+    for (const inc of incidents.values()) if (!inc.done && inc.profile === profile) await inc.disabledBy(admin);
   },
 }));
 
 app.get('/healthz', (_req, res) => res.json({ ok: true }));
 
-const MENTION = /@agent\b/i;
+const escapeRe = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-const main = async () => {
-  await mm.init();
-  mm.listen(async (post) => {
+// One listener per profile. Each reacts only to its own bot's name, in its
+// allowed channels, from its allowed users, and only in threads it owns.
+function handler(name, mm) {
+  const mention = new RegExp(`@${escapeRe(settings.profile(name).bot)}(?![\\w.-])`, 'i');
+  return async (post) => {
+    const cfg = settings.profile(name);
+    if (!cfg) return;
     const username = await mm.userName(post.user_id);
+    const mentioned = mention.test(post.message);
+    const root = post.root_id;
+    const inc = root && byRoot.get(root);
+    const past = root && finished[root];
+    const owner = inc ? inc.profile : past ? (past.profile || 'ops') : null;
+    const owned = owner === name;
+    if (!mentioned && !owned) return;
+    const thread = root || post.id;
 
-    if (!settings.isEnabled()) {
-      const live = post.root_id && (byRoot.get(post.root_id) || finished[post.root_id]);
-      if (live || MENTION.test(post.message)) {
-        ignoredWhileDisabled(`message from ${username}: ${audit.clip(post.message, 120)}`, post.root_id || post.id, username);
-      }
+    if (!settings.isEnabled(name)) {
+      ignoredWhileDisabled(`message from ${username}: ${audit.clip(post.message, 120)}`, thread, username, name);
       return;
     }
 
-    if (post.root_id) {
-      // reply in a thread: active incident gets it injected live
-      const inc = byRoot.get(post.root_id);
+    const refuse = async (why, text) => {
+      audit.record({ profile: name, kind: 'refusal', rootId: thread, actor: username, summary: `${why}: ${audit.clip(post.message, 100)}`, detail: { reason: why, message: audit.clip(post.message) } });
+      await mm.post(text, thread).catch((err) => console.error('refusal post failed', err.message));
+    };
+    const chan = await mm.channelName(post.channel_id);
+    if (!cfg.channels.includes(chan)) {
+      return refuse('channel not allowed', `I don't answer in ~${chan}. Ask in ${cfg.channels.map((c) => `~${c}`).join(' or ')}.`);
+    }
+    if (cfg.users.length && !cfg.users.includes(username)) {
+      return refuse('user not allowed', `Sorry @${username}, you are not on my allowed users list.`);
+    }
+
+    if (owned) {
       if (inc && !inc.done) {
         await inc.handleThreadReply(post.message, username);
         return;
       }
-      // finished incident: resume the original session with full context
-      const past = finished[post.root_id];
       if (past) {
-        console.log(`followup in thread ${post.root_id} from ${username}`);
-        launch(`followup:${post.root_id}`, {
-          source: 'followup',
-          username,
-          message: post.message,
-        }, {
-          rootId: post.root_id,
-          resume: past.sessionId,
-          mode: past.mode,
-          ticketId: past.ticketId,
+        console.log(`${name}: followup in thread ${root} from ${username}`);
+        launch(`followup:${root}`, { source: 'followup', username, message: post.message }, {
+          profile: name, rootId: root, resume: past.sessionId, mode: past.mode, ticketId: past.ticketId,
         });
         return;
       }
-      // unknown thread - one the harness has no session for, e.g. after a
-      // restart or a thread an engineer started. React only if mentioned, and
-      // read the thread from Mattermost so the reply has its context.
-      if (MENTION.test(post.message)) {
-        const transcript = await mm.thread(post.root_id).catch((err) => {
-          console.error('thread read failed', err.message);
-          return null;
-        });
-        launch(`mention:${post.id}`, {
-          source: 'mention',
-          username,
-          message: post.message,
-          transcript,
-        }, { rootId: post.root_id });
-      }
-      return;
     }
+    if (!mentioned) return;
+    // Top-level mention, or a mention in a thread this profile has no session
+    // for (a restart, an engineer's own thread, another agent's thread): read
+    // the thread from Mattermost so the reply has its context.
+    console.log(`${name}: mention from ${username}: ${post.message.slice(0, 80)}`);
+    let transcript;
+    if (root) {
+      transcript = await mm.thread(root).catch((err) => {
+        console.error('thread read failed', err.message);
+        return null;
+      });
+    }
+    launch(`mention:${post.id}`, { source: 'mention', username, message: post.message, transcript },
+      { profile: name, rootId: thread });
+  };
+}
 
-    // top-level channel post mentioning the agent: ad-hoc Q&A in its thread
-    if (MENTION.test(post.message)) {
-      console.log(`mention from ${username}: ${post.message.slice(0, 80)}`);
-      launch(`mention:${post.id}`, {
-        source: 'mention',
-        username,
-        message: post.message,
-      }, { rootId: post.id });
-    }
-  });
+const main = async () => {
+  for (const p of settings.profiles()) {
+    const token = process.env[p.token_env];
+    if (!token) { console.error(`profile ${p.name}: ${p.token_env} not set, profile not started`); continue; }
+    const mm = mattermost.createClient(p.name, token);
+    await mm.init();
+    if (mm.botName !== p.bot) console.error(`profile ${p.name}: token belongs to ${mm.botName}, expected ${p.bot}`);
+    clients.set(p.name, mm);
+    mm.listen(handler(p.name, mm));
+  }
   app.listen(config.port, () => {
     console.log(`agent harness listening on :${config.port}`);
   });

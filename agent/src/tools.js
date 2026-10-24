@@ -10,7 +10,7 @@ import * as zammad from './zammad.js';
 import * as icinga from './icinga.js';
 import * as alerts from './alerts.js';
 import * as activity from './activity.js';
-import * as mm from './mattermost.js';
+import { threadUrl } from './mattermost.js';
 import * as settings from './settings.js';
 
 const execFileP = promisify(execFile);
@@ -21,9 +21,22 @@ const READ_CMDS = new Set([
   'cat', 'ls', 'df', 'du', 'free', 'ps', 'journalctl', 'systemctl', 'tail',
   'head', 'grep', 'ss', 'netstat', 'uptime', 'curl', 'id', 'whoami', 'w',
   'last', 'dmesg', 'find', 'stat', 'wc', 'env', 'hostname', 'ip', 'date',
-  'echo', 'pg_isready', 'nginx', 'node', 'which', 'file', 'lsof', 'mount',
+  'echo', 'sort', 'uniq', 'cut', 'tr', 'pg_isready', 'nginx', 'node', 'which', 'file', 'lsof', 'mount',
 ]);
+// A read-only profile gets the allowlist applied to every command in a chain,
+// and the diagnostic commands that can still change things are narrowed.
+const STRICT_PATTERNS = /\bfind\b.*\s-(delete|exec|ok)|\bcurl\b.*\s(-X|--request|-d|--data\S*|-T|--upload-file|-F)\b|\bnginx\s+-s\b|\$\(/;
 const WRITE_PATTERNS = /[><`]|\brm\b|\bmv\b|\bcp\b|\bdd\b|\bkill\b|\bpkill\b|\bshutdown\b|\breboot\b|\btruncate\b|\bfallocate\b|\bchmod\b|\bchown\b|\btee\b|\bsed\s+-i\b|\bapt\b|\bapt-get\b|systemctl\s+(start|stop|restart|reload|mask|unmask|enable|disable)\b|\bmkdir\b|\btouch\b|\buseradd\b|\bpasswd\b/;
+
+const isReadOnlyProfile = (incident) => settings.profile(incident.profile)?.mode === 'read-only';
+
+function strictViolation(command) {
+  if (readOnlyViolation(command) || STRICT_PATTERNS.test(command)) return true;
+  return command.split(/&&|\|\||[;|\n]/).some((seg) => {
+    const w = seg.trim().split(/\s+/)[0];
+    return w && (!READ_CMDS.has(w) || w === 'node');
+  });
+}
 
 function readOnlyViolation(command) {
   if (WRITE_PATTERNS.test(command)) return true;
@@ -99,6 +112,9 @@ const defs = [
       'instead - use that to tell an engineer in an earlier thread that their request has caused an alert.',
     shape: { message: z.string(), thread_id: z.string().optional() },
     run: async (incident, { message, thread_id }) => {
+      if (thread_id && thread_id !== incident.rootId && isReadOnlyProfile(incident)) {
+        return 'BLOCKED: this agent profile is read-only, it may only post in its own thread.';
+      }
       const refused = incident.guardPost(message, thread_id);
       if (refused) return refused;
       await incident.postUpdate(message, thread_id);
@@ -120,7 +136,7 @@ const defs = [
         limit: limit ?? 60,
         excludeThread: incident.rootId || undefined,
       });
-      for (const [id, t] of Object.entries(res.threads)) t.url = mm.threadUrl(id);
+      for (const [id, t] of Object.entries(res.threads)) t.url = threadUrl(id);
       return JSON.stringify(res);
     },
   },
@@ -185,6 +201,9 @@ const defs = [
       'blocked, whatever the incident mode.',
     shape: { customer: z.string().describe('customer name, e.g. cust1'), command: z.string() },
     run: async (incident, { customer, command }) => {
+      if (isReadOnlyProfile(incident) && strictViolation(command)) {
+        return `BLOCKED: this agent profile is read-only, command not allowed: ${command}`;
+      }
       if (incident.state.mode === 'read-only' && readOnlyViolation(command)) {
         return `BLOCKED: incident is in read-only mode, command not on the diagnostic allowlist: ${command}`;
       }
@@ -276,6 +295,7 @@ const defs = [
     description: 'Add a note to the incident Zammad ticket, optionally changing its state (open, closed).',
     shape: { note: z.string(), state: z.enum(['open', 'closed']).optional() },
     run: async (incident, { note, state }) => {
+      if (isReadOnlyProfile(incident)) return 'BLOCKED: this agent profile is read-only, it cannot update or close tickets.';
       if (!incident.state.ticketId) return 'no ticket attached to this incident';
       await zammad.addNote(incident.state.ticketId, note);
       if (state) await zammad.setState(incident.state.ticketId, state);

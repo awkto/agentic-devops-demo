@@ -1,6 +1,5 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { config } from './config.js';
-import * as mm from './mattermost.js';
 import * as zammad from './zammad.js';
 import * as sessions from './sessions.js';
 import { buildOpsServer, allowedToolNames, openaiToolSchemas, runTool } from './tools.js';
@@ -16,10 +15,12 @@ export class Incident {
   // opts: { rootId, resume, mode, ticketId } for follow-up and mention sessions
   constructor(key, trigger, opts = {}) {
     this.key = key;
-    this.profile = 'ops';
+    this.profile = opts.profile || 'ops';
+    this.mm = opts.mm;
+    this.channel = opts.channel;
     this.trigger = trigger;
     this.state = {
-      mode: opts.mode || config.defaultMode,
+      mode: this.readOnlyProfile() ? 'read-only' : (opts.mode || config.defaultMode),
       ticketId: opts.ticketId ?? trigger.ticketId ?? null,
     };
     this.rootId = opts.rootId || null;
@@ -38,8 +39,13 @@ export class Incident {
     this.postsTotal = 0;
   }
 
-  audit(kind, summary, detail, actor = 'agent') {
-    audit.record({ kind, rootId: this.rootId, ticketId: this.state.ticketId, actor, summary, detail });
+  // A read-only profile never leaves read-only, whatever an engineer says.
+  readOnlyProfile() {
+    return settings.profile(this.profile)?.mode === 'read-only';
+  }
+
+  audit(kind, summary, detail, actor = this.mm?.botName || 'agent') {
+    audit.record({ profile: this.profile, kind, rootId: this.rootId, ticketId: this.state.ticketId, actor, summary, detail });
   }
 
   // Describes what started this session, for the audit trigger row.
@@ -78,7 +84,7 @@ export class Incident {
 
   async postUpdate(message, threadId) {
     const root = threadId || this.rootId;
-    const posted = await mm.post(message, root);
+    const posted = await this.mm.post(message, root);
     activity.record({ kind: 'post', key: this.key, threadId: root || posted.id, text: message });
     return posted;
   }
@@ -110,13 +116,13 @@ export class Incident {
     this.done = true;
     clearTimeout(this.idleTimer);
     this.enqueue(CLOSE);
-    if (reason) mm.post(`(${reason})`, this.rootId).catch(() => {});
+    if (reason) this.mm.post(`(${reason})`, this.rootId).catch(() => {});
   }
 
   // Kill switch hit: cut the in-flight model call and tell the thread.
   async disabledBy(admin) {
     try { this.aborter?.abort(); } catch {}
-    if (this.rootId) await mm.post(`Agent disabled by ${admin}.`, this.rootId).catch(() => {});
+    if (this.rootId) await this.mm.post(`Agent disabled by ${admin}.`, this.rootId).catch(() => {});
   }
 
   async stop() {
@@ -127,7 +133,7 @@ export class Incident {
   }
 
   async handleThreadReply(text, username) {
-    const cmd = text.trim().toLowerCase().replace(/^@agent[,:]?\s*/, '');
+    const cmd = text.trim().toLowerCase().replace(new RegExp(`^@${this.mm.botName}[,:]?\\s*`), '');
     if (cmd === 'stop' || cmd === 'read-only' || cmd === 'read-write' || cmd === 'go ahead') {
       this.audit('trigger', `thread command from ${username}: ${cmd}`, { message: audit.clip(text) }, username);
     }
@@ -140,6 +146,10 @@ export class Incident {
       await this.postUpdate('Mode set to read-only. I will only run diagnostic commands.');
       this.enqueue(`[${username} in Mattermost] Switch to read-only mode: investigate but do not change anything on the host.`);
       this.resetIdleTimer();
+      return;
+    }
+    if ((cmd === 'read-write' || cmd === 'go ahead') && this.readOnlyProfile()) {
+      await this.postUpdate('I am a read-only agent, I cannot switch to read-write.');
       return;
     }
     if (cmd === 'read-write' || cmd === 'go ahead') {
@@ -184,9 +194,10 @@ export class Incident {
       ? `[${t.host}] ${t.service} ${t.state}`
       : `Ticket #${t.ticketNumber}: ${t.title}`;
 
-    const root = await mm.post(
+    const root = await this.mm.post(
       `Incident: ${title}\nSource: ${t.source}. Investigating, updates follow in this thread. ` +
-      `Reply here to guide me ("stop", "read-only", "read-write", or free text).`
+      `Reply here to guide me ("stop", "read-only", "read-write", or free text).`,
+      null, this.channel,
     );
     this.rootId = root.id;
     this.auditTrigger();
@@ -276,13 +287,13 @@ export class Incident {
         this.busy = false;
         sessions.save(this.sessionId, this.messages);
         if (r.stop === 'degenerate') {
-          await mm.post('(stopped: the model output degenerated into repetition)', this.rootId);
+          await this.mm.post('(stopped: the model output degenerated into repetition)', this.rootId);
         }
         if (r.stop === 'max_iters') {
-          await mm.post('Agent session hit the turn limit and stopped.', this.rootId);
+          await this.mm.post('Agent session hit the turn limit and stopped.', this.rootId);
         }
         if (r.stop === 'repeat_loop') {
-          await mm.post('(stopped: the model repeated the same action)', this.rootId);
+          await this.mm.post('(stopped: the model repeated the same action)', this.rootId);
         }
         if (this.done) return;
         // Turn finished. Keep the thread open for follow-up questions.
@@ -293,7 +304,7 @@ export class Incident {
       }
     } catch (err) {
       console.error(`incident ${this.key} failed`, err);
-      await mm.post(`Agent session crashed: ${err.message}`, this.rootId).catch(() => {});
+      await this.mm.post(`Agent session crashed: ${err.message}`, this.rootId).catch(() => {});
     } finally {
       this.busy = false;
       this.done = true;
@@ -352,7 +363,7 @@ export class Incident {
         }
         if (msg.type === 'result') {
           if (msg.subtype !== 'success' && msg.subtype !== 'error_max_turns') {
-            await mm.post(`Agent session error: ${msg.subtype}`, this.rootId);
+            await this.mm.post(`Agent session error: ${msg.subtype}`, this.rootId);
           }
           // Turn finished. Keep the thread open for follow-up questions.
           this.resetIdleTimer();
@@ -360,7 +371,7 @@ export class Incident {
       }
     } catch (err) {
       console.error(`incident ${this.key} failed`, err);
-      await mm.post(`Agent session crashed: ${err.message}`, this.rootId).catch(() => {});
+      await this.mm.post(`Agent session crashed: ${err.message}`, this.rootId).catch(() => {});
     } finally {
       this.done = true;
       clearTimeout(this.idleTimer);

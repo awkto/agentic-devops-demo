@@ -36,18 +36,20 @@ done
 echo "==> clearing agent memory"
 $SSH "root@agent.$DOMAIN" "systemctl stop agentd; rm -f /opt/agent/sessions/*.json /opt/agent/state.json /opt/agent/alerts.jsonl /opt/agent/activity.jsonl; systemctl start agentd" >/dev/null 2>&1
 
-echo "==> wiping the Incidents channel"
+echo "==> wiping the Incidents and Ops questions channels"
 MMPW=$(bg agentic-demo/mattermost admin_password)
 MMTOK=$(curl -s -i -X POST "https://chat.$DOMAIN/api/v4/users/login" \
   -H 'Content-Type: application/json' \
   -d "{\"login_id\":\"sysadmin\",\"password\":\"$MMPW\"}" | awk '/^[Tt]oken:/{print $2}' | tr -d '\r')
 if [ -n "$MMTOK" ]; then
-  CH=$(curl -s -H "Authorization: Bearer $MMTOK" "https://chat.$DOMAIN/api/v4/teams/name/ops/channels/name/incidents" | jq -r .id)
   n=0
-  for id in $(curl -s -H "Authorization: Bearer $MMTOK" "https://chat.$DOMAIN/api/v4/channels/$CH/posts?per_page=200" \
-      | jq -r '.posts | to_entries[] | select(.value.root_id == "" and .value.delete_at == 0) | .key'); do
-    curl -s -o /dev/null -X DELETE -H "Authorization: Bearer $MMTOK" "https://chat.$DOMAIN/api/v4/posts/$id"
-    n=$((n+1))
+  for chan in incidents ops-questions; do
+    CH=$(curl -s -H "Authorization: Bearer $MMTOK" "https://chat.$DOMAIN/api/v4/teams/name/ops/channels/name/$chan" | jq -r .id)
+    for id in $(curl -s -H "Authorization: Bearer $MMTOK" "https://chat.$DOMAIN/api/v4/channels/$CH/posts?per_page=200" \
+        | jq -r '.posts | to_entries[] | select(.value.root_id == "" and .value.delete_at == 0) | .key'); do
+      curl -s -o /dev/null -X DELETE -H "Authorization: Bearer $MMTOK" "https://chat.$DOMAIN/api/v4/posts/$id"
+      n=$((n+1))
+    done
   done
   echo "    deleted $n threads"
 else

@@ -6,7 +6,7 @@ import path from 'path';
 import { config } from './config.js';
 
 const FILE = process.env.ADMIN_DB || path.join(path.dirname(config.sessionsDir), 'admin.db');
-export const KINDS = ['trigger', 'model_call', 'tool_call', 'post', 'ticket', 'admin_change'];
+export const KINDS = ['trigger', 'model_call', 'tool_call', 'post', 'ticket', 'admin_change', 'refusal'];
 
 const db = new DatabaseSync(FILE);
 db.exec(`CREATE TABLE IF NOT EXISTS audit (

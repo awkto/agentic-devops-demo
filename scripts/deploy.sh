@@ -108,7 +108,9 @@ MM_TOKEN=$(ssh $SSH_OPTS "root@$CORE_IP" cat /opt/demo/state/mm_token)
 ZAMMAD_TOKEN=$(ssh $SSH_OPTS "root@$CORE_IP" cat /opt/demo/state/zammad_token)
 BAO_ROLE_ID=$(ssh $SSH_OPTS "root@$CORE_IP" cat /opt/demo/state/bao_role_id)
 BAO_SECRET_ID=$(ssh $SSH_OPTS "root@$CORE_IP" cat /opt/demo/state/bao_secret_id)
+MM_READER_TOKEN=$(ssh $SSH_OPTS "root@$CORE_IP" cat /opt/demo/state/mm_reader_token)
 bao kv put agentic-demo/mattermost-bot token="$MM_TOKEN" >/dev/null
+bao kv put agentic-demo/mattermost-bot-reader token="$MM_READER_TOKEN" >/dev/null
 bao kv put agentic-demo/zammad-api token="$ZAMMAD_TOKEN" >/dev/null
 
 echo "==> agent host"
@@ -146,6 +148,7 @@ AGENT_DEFAULT_MODE=read-write
 WEBHOOK_SECRET=$(bg agentic-demo/webhook shared_secret)
 MM_URL=https://chat.$DOMAIN
 MM_BOT_TOKEN=$MM_TOKEN
+MM_READER_BOT_TOKEN=$MM_READER_TOKEN
 MM_TEAM=ops
 MM_CHANNEL=incidents
 ZAMMAD_URL=https://tickets.$DOMAIN

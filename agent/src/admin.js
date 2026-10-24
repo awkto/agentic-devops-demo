@@ -99,6 +99,27 @@ async function tokenExchange(code) {
   return r.json();
 }
 
+function agentRow(p, canEdit) {
+  const n = esc(p.name);
+  const on = settings.isEnabled(p.name);
+  const toggle = canEdit
+    ? `<form method="post" action="/admin/agents/${n}/${on ? 'disable' : 'enable'}" style="display:inline"><button>${on ? 'Disable' : 'Enable'}</button></form>`
+    : '';
+  const head = `<h3>${esc(p.display)} <span class="muted">${n}, bot @${esc(p.bot)}</span>
+ <span id="status-${n}">${on ? 'enabled' : '<b>disabled</b>'}</span> ${toggle}</h3>`;
+  if (!canEdit) {
+    return `<div id="agent-${n}">${head}<table>
+<tr><th>Mode</th><td>${esc(p.mode)}</td></tr><tr><th>Takes alerts</th><td>${p.takes_alerts ? 'yes' : 'no'}</td></tr>
+<tr><th>Allowed users</th><td>${esc(p.allowed_users) || 'anyone'}</td></tr><tr><th>Allowed channels</th><td>${esc(p.allowed_channels)}</td></tr></table></div>`;
+  }
+  return `<div id="agent-${n}">${head}<form method="post" action="/admin/agents/${n}">
+<label>Mode <select name="mode">${['read-write', 'read-only'].map((m) => `<option${m === p.mode ? ' selected' : ''}>${m}</option>`).join('')}</select></label>
+<label><input type="checkbox" name="takes_alerts" value="1"${p.takes_alerts ? ' checked' : ''}> takes alerts</label>
+<label>Allowed users <input name="allowed_users" value="${esc(p.allowed_users)}" placeholder="anyone"></label>
+<label>Allowed channels <input name="allowed_channels" value="${esc(p.allowed_channels)}"></label>
+<button>Save</button></form></div>`;
+}
+
 export function adminRouter({ onDisable } = {}) {
   const router = express.Router();
 
@@ -168,20 +189,14 @@ export function adminRouter({ onDisable } = {}) {
 <p>Logged in as <b id="user">${esc(a.user)}</b> (${esc(a.name)}), role <b id="role">${esc(a.role)}</b>
 ${a.role === 'agent-admin' ? '' : '<span class="muted">(read-only)</span>'}
  &middot; <a href="/admin/logout">log out</a></p>
-<section><h2>Agents</h2><table><tr><th>Agent</th><th>Status</th><th></th></tr>
-${settings.PROFILES.map((p) => {
-  const on = settings.isEnabled(p);
-  const btn = a.role === 'agent-admin'
-    ? `<form method="post" action="/admin/agents/${esc(p)}/${on ? 'disable' : 'enable'}"><button>${on ? 'Disable' : 'Enable'}</button></form>`
-    : '<span class="muted">read-only</span>';
-  return `<tr><td>${esc(p)}</td><td id="status-${esc(p)}">${on ? 'enabled' : '<b>disabled</b>'}</td><td>${btn}</td></tr>`;
-}).join('')}</table></section>
+<section><h2>Agents</h2><p class="muted">Each agent is its own Mattermost bot. Empty allowed users means anyone.</p>
+${settings.profiles().map((p) => agentRow(p, a.role === 'agent-admin')).join('')}</section>
 <section><h2>Audit</h2><p><a href="/admin/audit">Audit log</a>: triggers, model calls, tool calls, posts and ticket changes.</p></section>`));
   });
 
   router.post('/agents/:name/:action(enable|disable)', requireAdmin, async (req, res) => {
     const { name, action } = req.params;
-    if (!settings.PROFILES.includes(name)) return res.status(404).json({ error: 'no such agent' });
+    if (!settings.profile(name)) return res.status(404).json({ error: 'no such agent' });
     const was = settings.isEnabled(name);
     const now = action === 'enable';
     if (was !== now) {
@@ -190,6 +205,23 @@ ${settings.PROFILES.map((p) => {
         summary: `${name} ${now ? 'enabled' : 'disabled'} by ${req.admin.user}`,
         detail: { setting: `agent.${name}.enabled`, old: was, new: now } });
       if (!now) await onDisable?.(name, req.admin.user);
+    }
+    res.redirect(303, '/admin');
+  });
+
+  router.post('/agents/:name', requireAdmin, express.urlencoded({ extended: false }), (req, res) => {
+    const { name } = req.params;
+    const old = settings.profile(name);
+    if (!old) return res.status(404).json({ error: 'no such agent' });
+    const b = req.body || {};
+    if (!['read-write', 'read-only'].includes(b.mode)) return res.status(400).json({ error: 'bad mode' });
+    settings.updateProfile(name, { mode: b.mode, takes_alerts: !!b.takes_alerts, allowed_users: b.allowed_users, allowed_channels: b.allowed_channels });
+    const now = settings.profile(name);
+    for (const f of settings.PROFILE_FIELDS) {
+      if (String(old[f]) === String(now[f])) continue;
+      audit.record({ profile: name, kind: 'admin_change', actor: req.admin.user,
+        summary: `${name} ${f}: "${old[f]}" -> "${now[f]}" by ${req.admin.user}`,
+        detail: { setting: `profile.${name}.${f}`, old: old[f], new: now[f] } });
     }
     res.redirect(303, '/admin');
   });

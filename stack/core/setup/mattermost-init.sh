@@ -17,11 +17,16 @@ mm user create --email "bob@${DOMAIN}" --username bob \
   --password "${DEMO_USER_PASSWORD}" --email-verified || true
 mm user create --email "agent@${DOMAIN}" --username agent \
   --password "${DEMO_USER_PASSWORD}" --email-verified || true
+mm user create --email "agent-reader@${DOMAIN}" --username agent-reader \
+  --password "${DEMO_USER_PASSWORD}" --email-verified || true
 
 mm team create --name ops --display-name "Ops" --private || true
-mm team users add ops sysadmin alice bob agent || true
+mm team users add ops sysadmin alice bob agent agent-reader || true
 mm channel create --team ops --name incidents --display-name "Incidents" || true
-mm channel users add ops:incidents sysadmin alice bob agent || true
+mm channel users add ops:incidents sysadmin alice bob agent agent-reader || true
+# Second, read-only agent (profile ops-reader): own bot, answers questions here.
+mm channel create --team ops --name ops-questions --display-name "Ops questions" || true
+mm channel users add ops:ops-questions sysadmin alice bob agent-reader || true
 
 # SSO via Keycloak (issue #6): Team Edition has no OIDC, but its GitLab login
 # is plain OAuth2, so point the endpoints at the realm. The "mattermost"
@@ -76,4 +81,8 @@ if [ ! -s /opt/demo/state/mm_token ]; then
   mm token generate agent agent-harness --json \
     | jq -r 'if type == "array" then .[0].token else .token end' > /opt/demo/state/mm_token
 fi
-echo "mattermost configured, agent token in /opt/demo/state/mm_token"
+if [ ! -s /opt/demo/state/mm_reader_token ]; then
+  mm token generate agent-reader agent-reader-harness --json \
+    | jq -r 'if type == "array" then .[0].token else .token end' > /opt/demo/state/mm_reader_token
+fi
+echo "mattermost configured, agent tokens in /opt/demo/state/mm_token and mm_reader_token"
