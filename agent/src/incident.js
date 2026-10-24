@@ -21,6 +21,9 @@ export class Incident {
     };
     this.rootId = opts.rootId || null;
     this.resume = opts.resume || null;
+    this.onSession = opts.onSession || null;
+    this.busy = false;
+    this.acked = false;
     this.sessionId = null;
     this.queue = [];
     this.waiter = null;
@@ -118,6 +121,12 @@ export class Incident {
       this.resetIdleTimer();
       return;
     }
+    // A reply queued mid-turn is only read between model calls; say so once
+    // per turn so it does not look ignored.
+    if (this.busy && !this.acked) {
+      this.acked = true;
+      await this.postUpdate("Noted, I'll pick that up after the current step.").catch(() => {});
+    }
     this.enqueue(`[${username} in Mattermost] ${text}`);
     this.resetIdleTimer();
   }
@@ -203,12 +212,16 @@ export class Incident {
     this.messages = (this.resume && sessions.load(this.resume)) ||
       [{ role: 'system', content: systemPrompt }];
     this.aborter = new AbortController();
+    // Map root -> session now, so a restart mid-incident can still resume it.
+    this.onSession?.(this);
     const tools = openaiToolSchemas();
 
     let input = initialPrompt;
     try {
       while (true) {
         this.messages.push({ role: 'user', content: input });
+        this.busy = true;
+        this.acked = false;
         const r = await runTurn({
           baseUrl: config.modelBaseUrl,
           apiKey: config.modelApiKey,
@@ -218,11 +231,20 @@ export class Incident {
           invoke: (name, args) => runTool(this, name, args),
           isAborted: () => this.done,
           injectUser: () => this.drainQueued(),
+          onBatch: () => {
+            sessions.save(this.sessionId, this.messages);
+            this.onSession?.(this);
+          },
+          timeoutMs: config.modelTimeoutMs,
           signal: this.aborter.signal,
           maxTokens: config.maxTokens,
           temperature: config.temperature,
         });
+        this.busy = false;
         sessions.save(this.sessionId, this.messages);
+        if (r.stop === 'degenerate') {
+          await mm.post('(stopped: the model output degenerated into repetition)', this.rootId);
+        }
         if (r.stop === 'max_iters') {
           await mm.post('Agent session hit the turn limit and stopped.', this.rootId);
         }
@@ -240,6 +262,7 @@ export class Incident {
       console.error(`incident ${this.key} failed`, err);
       await mm.post(`Agent session crashed: ${err.message}`, this.rootId).catch(() => {});
     } finally {
+      this.busy = false;
       this.done = true;
       clearTimeout(this.idleTimer);
       if (this.messages) {

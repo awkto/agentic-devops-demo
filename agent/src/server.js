@@ -44,7 +44,7 @@ function auth(req, res, next) {
 function launch(key, trigger, opts) {
   const existing = incidents.get(key);
   if (existing && !existing.done) return existing;
-  const inc = new Incident(key, trigger, opts);
+  const inc = new Incident(key, trigger, { ...opts, onSession: rememberSession });
   incidents.set(key, inc);
   inc.run()
     .catch((err) => console.error(`incident ${key} run failed`, err))

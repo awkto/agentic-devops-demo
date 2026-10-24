@@ -14,6 +14,7 @@ export const config = {
   modelBaseUrl: process.env.MODEL_BASE_URL || '',
   modelApiKey: process.env.MODEL_API_KEY || '',
   maxTokens: Number(process.env.AGENT_MAX_TOKENS || 4096),
+  modelTimeoutMs: Number(process.env.AGENT_MODEL_TIMEOUT_MS || 180000),
   temperature: Number(process.env.AGENT_TEMPERATURE || 0.3),
   sessionsDir: process.env.SESSIONS_DIR || '/opt/agent/sessions',
   defaultMode: process.env.AGENT_DEFAULT_MODE || 'read-write',
