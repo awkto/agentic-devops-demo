@@ -72,6 +72,7 @@ app.post('/webhook/icinga', auth, (req, res) => {
   if (b.type === 'RECOVERY') {
     const inc = incidents.get(key);
     if (inc && !inc.done) {
+      inc.auditTrigger({ source: 'icinga', ...b });
       inc.enqueue(`[Icinga] Recovery notification: ${b.host}/${b.service} is ${b.state}. Output: ${b.output}`);
     }
     return res.json({ ok: true, action: 'recovery-forwarded' });
@@ -80,6 +81,7 @@ app.post('/webhook/icinga', auth, (req, res) => {
   if (existing && !existing.done) {
     // The service broke again while the previous session is still open (idle
     // window). Forward into the thread instead of dropping the alert.
+    existing.auditTrigger({ source: 'icinga', ...b });
     existing.enqueue(`[Icinga] New problem notification: ${b.host}/${b.service} is ${b.state} again. Output: ${b.output}. Investigate.`);
     existing.resetIdleTimer();
     return res.json({ ok: true, action: 'problem-forwarded' });

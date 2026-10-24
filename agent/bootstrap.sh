@@ -22,7 +22,7 @@ fi
 mkdir -p /opt/agent
 rsync -a --delete --exclude .env --exclude node_modules \
   --exclude state.json --exclude .claude --exclude sessions --exclude work \
-  --exclude alerts.jsonl --exclude activity.jsonl \
+  --exclude alerts.jsonl --exclude activity.jsonl --exclude 'admin.db*' \
   /opt/demo/agent/ /opt/agent/
 (cd /opt/agent && npm install --omit=dev --no-audit --no-fund >/dev/null)
 

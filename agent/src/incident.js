@@ -6,6 +6,7 @@ import * as sessions from './sessions.js';
 import { buildOpsServer, allowedToolNames, openaiToolSchemas, runTool } from './tools.js';
 import { runTurn } from './oaichat.js';
 import * as activity from './activity.js';
+import * as audit from './audit.js';
 import { systemPrompt, incidentPrompt, followupPrompt, mentionPrompt } from './prompts.js';
 
 const CLOSE = Symbol('close');
@@ -33,6 +34,22 @@ export class Incident {
     this.postKeys = [];
     this.dupPosts = 0;
     this.postsTotal = 0;
+  }
+
+  audit(kind, summary, detail, actor = 'agent') {
+    audit.record({ kind, rootId: this.rootId, ticketId: this.state.ticketId, actor, summary, detail });
+  }
+
+  // Describes what started this session, for the audit trigger row.
+  auditTrigger(t = this.trigger) {
+    if (t.source === 'icinga') {
+      this.audit('trigger', `icinga ${t.type || ''} ${t.host}/${t.service} ${t.state}`, t, 'icinga');
+    } else if (t.source === 'zammad') {
+      this.audit('trigger', `zammad ticket #${t.ticketNumber}: ${t.title}`, { ticketId: t.ticketId, title: t.title }, 'zammad');
+    } else {
+      this.audit('trigger', `${t.source} from ${t.username}: ${audit.clip(t.message, 120)}`,
+        { message: audit.clip(t.message) }, t.username);
+    }
   }
 
   // A model that loops will happily post the same update forever. Refuse the
@@ -103,6 +120,9 @@ export class Incident {
 
   async handleThreadReply(text, username) {
     const cmd = text.trim().toLowerCase().replace(/^@agent[,:]?\s*/, '');
+    if (cmd === 'stop' || cmd === 'read-only' || cmd === 'read-write' || cmd === 'go ahead') {
+      this.audit('trigger', `thread command from ${username}: ${cmd}`, { message: audit.clip(text) }, username);
+    }
     if (cmd === 'stop') {
       await this.stop();
       return;
@@ -121,6 +141,7 @@ export class Incident {
       this.resetIdleTimer();
       return;
     }
+    this.audit('trigger', `thread reply from ${username}: ${audit.clip(text, 120)}`, { message: audit.clip(text) }, username);
     // A reply queued mid-turn is only read between model calls; say so once
     // per turn so it does not look ignored.
     if (this.busy && !this.acked) {
@@ -143,6 +164,7 @@ export class Incident {
   async buildInitialPrompt() {
     const t = this.trigger;
 
+    if (t.source === 'followup' || t.source === 'mention') this.auditTrigger();
     if (t.source === 'followup') {
       return followupPrompt(t.username, t.message, this.state.mode);
     }
@@ -159,6 +181,7 @@ export class Incident {
       `Reply here to guide me ("stop", "read-only", "read-write", or free text).`
     );
     this.rootId = root.id;
+    this.auditTrigger();
     activity.record({
       kind: 'incident-opened',
       key: this.key,
@@ -174,6 +197,7 @@ export class Incident {
           `Automated ticket for Icinga alert.\n\nHost: ${t.host}\nService: ${t.service}\nState: ${t.state}\nOutput: ${t.output}`
         );
         this.state.ticketId = ticket.id;
+        this.audit('ticket', `created #${ticket.number}`, { id: ticket.id, number: ticket.number, title: ticket.title });
         const link = zammad.ticketLink(ticket);
         ticketInfo = `Zammad ticket ${link} (id ${ticket.id}) was created for this alert.`;
         await this.postUpdate(`Created Zammad ticket ${link} for this alert.`);
@@ -228,7 +252,8 @@ export class Incident {
           model: config.model,
           messages: this.messages,
           tools,
-          invoke: (name, args) => runTool(this, name, args),
+          invoke: (name, args) => this.auditedTool(name, args),
+          onCall: (c) => this.audit('model_call', `${c.model} ${c.latencyMs}ms, ${c.chars} chars, ${c.toolCalls} tool calls`, c),
           isAborted: () => this.done,
           injectUser: () => this.drainQueued(),
           onBatch: () => {
@@ -274,6 +299,25 @@ export class Incident {
         sessions.save(this.sessionId, this.messages);
       }
     }
+  }
+
+  async auditedTool(name, args) {
+    let out;
+    let status = 'ok';
+    try {
+      out = String(await runTool(this, name, args));
+    } catch (err) {
+      out = `tool error: ${err.message}`;
+      status = 'error';
+    }
+    if (status === 'ok' && /^(BLOCKED|NOT POSTED)/.test(out)) status = 'blocked';
+    else if (status === 'ok' && /^(tool error|invalid arguments|unknown tool)/.test(out)) status = 'error';
+    this.audit('tool_call', `${name} ${status}`, { name, args: audit.clip(args), status, result: audit.clip(out) });
+    if (name === 'update_ticket' && status === 'ok') {
+      this.audit('ticket', args.state === 'closed' ? 'closed' : 'updated', { note: audit.clip(args.note, 500), state: args.state || null });
+    }
+    if (status === 'error') throw new Error(out.replace(/^tool error: /, ''));
+    return out;
   }
 
   async runSdk() {

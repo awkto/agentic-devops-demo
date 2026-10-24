@@ -1,5 +1,6 @@
 import WebSocket from 'ws';
 import { config } from './config.js';
+import * as audit from './audit.js';
 
 const { url, token } = config.mattermost;
 
@@ -31,11 +32,13 @@ export async function init() {
 }
 
 export async function post(message, rootId) {
-  return api('/posts', 'POST', {
+  const posted = await api('/posts', 'POST', {
     channel_id: channelId,
     message,
     root_id: rootId || '',
   });
+  audit.record({ kind: 'post', rootId: rootId || posted.id, actor: 'agent', summary: message, detail: { post_id: posted.id, message: audit.clip(message) } });
+  return posted;
 }
 
 // Every post in a thread, oldest first, with usernames resolved. Used when an

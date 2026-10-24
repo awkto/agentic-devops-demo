@@ -1,6 +1,9 @@
 import crypto from 'crypto';
 import express from 'express';
 import { config } from './config.js';
+import * as audit from './audit.js';
+import * as mm from './mattermost.js';
+import * as zammad from './zammad.js';
 
 // /admin: Keycloak OIDC authorization-code login, signed session cookie.
 // Roles come from the ID token "roles" claim. agent-admin may edit,
@@ -47,9 +50,11 @@ function setCookie(res, name, value, maxAge) {
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
-function page(title, body) {
+function page(title, body, width = '48rem') {
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title>
-<style>body{font-family:sans-serif;max-width:48rem;margin:2rem auto;padding:0 1rem}
+<style>body{font-family:sans-serif;max-width:${width};margin:2rem auto;padding:0 1rem}
+table{border-collapse:collapse;width:100%;font-size:.9rem}td,th{border-bottom:1px solid #ddd;padding:.25rem .5rem;text-align:left;vertical-align:top}
+details pre{white-space:pre-wrap;word-break:break-word;margin:.25rem 0}
 section{border:1px solid #ccc;border-radius:4px;padding:.5rem 1rem;margin:1rem 0}
 .muted{color:#666}</style></head><body>${body}</body></html>`;
 }
@@ -163,7 +168,62 @@ export function adminRouter() {
 ${a.role === 'agent-admin' ? '' : '<span class="muted">(read-only)</span>'}
  &middot; <a href="/admin/logout">log out</a></p>
 <section><h2>Agents</h2><p class="muted">Not built yet.</p></section>
-<section><h2>Audit</h2><p class="muted">Not built yet.</p></section>`));
+<section><h2>Audit</h2><p><a href="/admin/audit">Audit log</a>: triggers, model calls, tool calls, posts and ticket changes.</p></section>`));
+  });
+
+  const filters = (q) => ({ kind: q.kind, root: q.root, from: q.from, to: q.to });
+  const stamp = () => new Date().toISOString().replace(/[:.]/g, '-');
+
+  router.get('/audit.jsonl', requireViewer, (req, res) => {
+    const rows = audit.query({ ...filters(req.query), limit: 50000 });
+    res.type('application/x-ndjson')
+      .set('Content-Disposition', `attachment; filename="audit-${stamp()}.jsonl"`)
+      .send(rows.map((r) => JSON.stringify({ ...r, detail: r.detail ? JSON.parse(r.detail) : null })).join('\n') + '\n');
+  });
+
+  router.get('/audit.csv', requireViewer, (req, res) => {
+    const rows = audit.query({ ...filters(req.query), limit: 50000 });
+    const cell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const cols = ['id', 'ts', 'profile', 'kind', 'root_id', 'ticket_id', 'actor', 'summary', 'detail'];
+    res.type('text/csv')
+      .set('Content-Disposition', `attachment; filename="audit-${stamp()}.csv"`)
+      .send([cols.join(','), ...rows.map((r) => cols.map((c) => cell(r[c])).join(','))].join('\n') + '\n');
+  });
+
+  router.get('/audit', requireViewer, (req, res) => {
+    const f = filters(req.query);
+    const qs = new URLSearchParams(Object.entries(f).filter(([, v]) => v)).toString();
+    const rows = audit.query(f);
+    // A root id filter reads as a timeline: oldest first.
+    if (f.root) rows.reverse();
+    const input = (name, label, type = 'text') =>
+      `<label>${label} <input type="${type}" name="${name}" value="${esc(f[name] || '')}"></label> `;
+    const kinds = ['', ...audit.KINDS].map((k) =>
+      `<option${k === f.kind ? ' selected' : ''}>${esc(k)}</option>`).join('');
+    const body = rows.map((r) => {
+      const root = r.root_id
+        ? `<a href="/admin/audit?root=${encodeURIComponent(r.root_id)}">${esc(r.root_id.slice(0, 8))}</a>
+ <a href="${esc(mm.threadUrl(r.root_id))}">MM</a>` : '';
+      const ticket = r.ticket_id ? `<a href="${esc(zammad.ticketUrl(r.ticket_id))}">#${esc(r.ticket_id)}</a>` : '';
+      let detail = '';
+      if (r.detail) {
+        let pretty = r.detail;
+        try { pretty = JSON.stringify(JSON.parse(r.detail), null, 2); } catch {}
+        detail = `<details><summary>detail</summary><pre>${esc(pretty)}</pre></details>`;
+      }
+      return `<tr><td>${esc(r.ts.replace('T', ' ').slice(0, 19))}</td><td>${esc(r.kind)}</td><td>${root}</td><td>${ticket}</td>
+<td>${esc(r.actor || '')}</td><td>${esc(r.summary || '')}${detail}</td></tr>`;
+    }).join('\n');
+    res.send(page('Audit log', `<h1>Audit log</h1>
+<p><a href="/admin">Back</a> &middot; <a href="/admin/audit.jsonl?${esc(qs)}">Export JSONL</a> &middot; <a href="/admin/audit.csv?${esc(qs)}">Export CSV</a>
+${f.root ? `&middot; timeline of one thread, <a href="/admin/audit">show all</a>` : ''}</p>
+<form method="get">
+<label>Kind <select name="kind">${kinds}</select></label>
+${input('root', 'Thread/root id')}${input('from', 'From', 'datetime-local')}${input('to', 'To', 'datetime-local')}
+<button>Filter</button></form>
+<p class="muted">${rows.length} rows${rows.length >= 500 ? ' (newest 500; use the export for more)' : ''}</p>
+<table><tr><th>Time (UTC)</th><th>Kind</th><th>Thread</th><th>Ticket</th><th>Actor</th><th>Summary</th></tr>
+${body}</table>`, '90rem'));
   });
 
   return router;

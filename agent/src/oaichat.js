@@ -24,7 +24,7 @@ export function stripThink(text) {
 }
 
 // One timeout (or network drop) is retried; a second one fails the call.
-async function chatOnce({ baseUrl, apiKey, model, messages, tools, maxTokens, temperature, signal, timeoutMs }) {
+async function chatOnce({ baseUrl, apiKey, model, messages, tools, maxTokens, temperature, signal, timeoutMs, onCall }) {
   let lastErr;
   let timeouts = 0;
   for (let attempt = 0; attempt < 4; attempt++) {
@@ -45,6 +45,7 @@ async function chatOnce({ baseUrl, apiKey, model, messages, tools, maxTokens, te
         const len = (m?.content || '').length +
           (m?.tool_calls || []).reduce((n, c) => n + (c.function?.arguments || '').length, 0);
         console.log(`model call ${Date.now() - t0}ms, ${len} chars`);
+        onCall?.({ model, latencyMs: Date.now() - t0, chars: len, usage: data.usage || null, toolCalls: (m?.tool_calls || []).length });
         return data;
       }
       lastErr = new Error(`model API ${res.status}: ${(await res.text()).slice(0, 400)}`);
@@ -65,7 +66,7 @@ async function chatOnce({ baseUrl, apiKey, model, messages, tools, maxTokens, te
 // onBatch() runs after each tool batch so callers can persist messages.
 export async function runTurn({
   baseUrl, apiKey, model, messages, tools, invoke,
-  isAborted, injectUser, onBatch, signal, timeoutMs = 180000, maxIters = 80, maxTokens = 4096, temperature = 0.3,
+  isAborted, injectUser, onBatch, onCall, signal, timeoutMs = 180000, maxIters = 80, maxTokens = 4096, temperature = 0.3,
 }) {
   let lastSig = null;
   let repeats = 0;
@@ -77,7 +78,7 @@ export async function runTurn({
     }
     let data;
     try {
-      data = await chatOnce({ baseUrl, apiKey, model, messages, tools, maxTokens, temperature, signal, timeoutMs });
+      data = await chatOnce({ baseUrl, apiKey, model, messages, tools, maxTokens, temperature, signal, timeoutMs, onCall });
     } catch (err) {
       if (err.name === 'AbortError') return { stop: 'aborted' };
       throw err;
