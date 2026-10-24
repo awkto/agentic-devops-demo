@@ -8,12 +8,7 @@ terraform {
   }
 }
 
-# Droplets live in the team account, the DNS zone lives in the personal account.
+# Droplets live in the team account, DNS records live in terraform/dns (separate state).
 provider "digitalocean" {
   token = var.do_token_team
-}
-
-provider "digitalocean" {
-  alias = "dns"
-  token = var.do_token_dns
 }

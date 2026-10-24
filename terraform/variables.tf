@@ -4,12 +4,6 @@ variable "do_token_team" {
   sensitive   = true
 }
 
-variable "do_token_dns" {
-  description = "DigitalOcean API token for the account that hosts the DNS zone"
-  type        = string
-  sensitive   = true
-}
-
 variable "domain" {
   description = "Base domain for the sandbox"
   type        = string

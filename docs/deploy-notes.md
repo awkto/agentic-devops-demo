@@ -10,6 +10,12 @@ rerunning setup scripts. The full history is in the GitLab tracking project
   droplets. Terraform uses two providers: `do_token_team` for droplets,
   `do_token_dns` for records. Tokens come from OpenBao `kv/digitalocean/teamadf`
   and `kv/digitalocean/myteam`.
+- The DNS records live in their own module, `terraform/dns` (own state, IPs
+  passed in by deploy.sh). `scripts/teardown.sh` only destroys the main module
+  (droplets, firewall, ssh key), so the A records stay with stale IPs and the
+  next deploy updates them in place. This avoids NXDOMAIN being cached for 30
+  min (DigitalOcean SOA negative TTL 1800 s, not configurable). To remove the
+  records for good, run `terraform destroy` in `terraform/dns` by hand.
 - Everything else lives in the OpenBao kv-v2 mount `agentic-demo`. The deploy
   script writes two generated tokens back (`mattermost-bot`, `zammad-api`);
   they are recreated on every fresh deploy, stale values are harmless.

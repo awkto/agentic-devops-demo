@@ -8,7 +8,7 @@ resource "digitalocean_record" "core" {
   domain   = var.domain
   type     = "A"
   name     = each.key
-  value    = digitalocean_droplet.core.ipv4_address
+  value    = var.core_ip
   ttl      = 300
 }
 
@@ -17,7 +17,7 @@ resource "digitalocean_record" "agent" {
   domain   = var.domain
   type     = "A"
   name     = "agent"
-  value    = digitalocean_droplet.agent.ipv4_address
+  value    = var.agent_ip
   ttl      = 300
 }
 
@@ -26,7 +26,7 @@ resource "digitalocean_record" "cust1" {
   domain   = var.domain
   type     = "A"
   name     = "cust1"
-  value    = digitalocean_droplet.cust1.ipv4_address
+  value    = var.cust1_ip
   ttl      = 300
 }
 
@@ -35,6 +35,6 @@ resource "digitalocean_record" "db1" {
   domain   = var.domain
   type     = "A"
   name     = "db1"
-  value    = digitalocean_droplet.db1.ipv4_address
+  value    = var.db1_ip
   ttl      = 300
 }

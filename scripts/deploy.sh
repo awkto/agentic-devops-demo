@@ -21,6 +21,10 @@ CORE_IP=$(cd terraform && terraform output -raw core_ip)
 AGENT_IP=$(cd terraform && terraform output -raw agent_ip)
 CUST1_IP=$(cd terraform && terraform output -raw cust1_ip)
 DB1_IP=$(cd terraform && terraform output -raw db1_ip)
+echo "==> dns (records updated in place)"
+(cd terraform/dns && terraform init -input=false >/dev/null && \
+  TF_VAR_core_ip=$CORE_IP TF_VAR_agent_ip=$AGENT_IP TF_VAR_cust1_ip=$CUST1_IP TF_VAR_db1_ip=$DB1_IP \
+  terraform apply -auto-approve)
 echo "core=$CORE_IP agent=$AGENT_IP cust1=$CUST1_IP db1=$DB1_IP"
 
 OPS_KEY=$(mktemp)
@@ -56,7 +60,7 @@ fi
 sync_repo() {
   ssh $SSH_OPTS "root@$1" "command -v rsync >/dev/null || apt-get install -y -qq rsync"
   rsync -az --delete -e "ssh $SSH_OPTS" \
-    --exclude .git --exclude state --exclude terraform/.terraform --exclude 'terraform/*tfstate*' \
+    --exclude .git --exclude state --exclude terraform/.terraform --exclude terraform/dns/.terraform --exclude 'terraform/*tfstate*' --exclude 'terraform/dns/*tfstate*' \
     "$ROOT/" "root@$1:/opt/demo/"
 }
 
