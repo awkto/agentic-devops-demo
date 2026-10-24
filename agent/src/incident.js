@@ -4,7 +4,6 @@ import * as zammad from './zammad.js';
 import * as sessions from './sessions.js';
 import { buildOpsServer, allowedToolNames, openaiToolSchemas, runTool, toolNames, toolLevel } from './tools.js';
 import { runTurn } from './oaichat.js';
-import * as activity from './activity.js';
 import * as audit from './audit.js';
 import * as settings from './settings.js';
 import { systemPrompt, incidentPrompt, followupPrompt, mentionPrompt } from './prompts.js';
@@ -84,9 +83,7 @@ export class Incident {
 
   async postUpdate(message, threadId) {
     const root = threadId || this.rootId;
-    const posted = await this.mm.post(message, root);
-    activity.record({ kind: 'post', key: this.key, threadId: root || posted.id, text: message });
-    return posted;
+    return this.mm.post(message, root);
   }
 
   enqueue(item) {
@@ -201,12 +198,6 @@ export class Incident {
     );
     this.rootId = root.id;
     this.auditTrigger();
-    activity.record({
-      kind: 'incident-opened',
-      key: this.key,
-      threadId: this.rootId,
-      text: `${title} (source ${t.source})`,
-    });
 
     let ticketInfo;
     if (t.source === 'icinga') {
@@ -367,6 +358,13 @@ export class Incident {
       for await (const msg of this.q) {
         if (msg.type === 'system' && msg.subtype === 'init' && msg.session_id) {
           this.sessionId = msg.session_id;
+        }
+        if (msg.type === 'assistant') {
+          const content = msg.message?.content || [];
+          const calls = content.filter((c) => c.type === 'tool_use').length;
+          const chars = content.filter((c) => c.type === 'text').reduce((n, c) => n + c.text.length, 0);
+          this.audit('model_call', `${config.model} (sdk), ${chars} chars, ${calls} tool calls`,
+            { model: config.model, path: 'sdk', chars, toolCalls: calls, usage: msg.message?.usage });
         }
         if (msg.type === 'result') {
           if (msg.subtype !== 'success' && msg.subtype !== 'error_max_turns') {

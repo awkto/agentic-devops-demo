@@ -102,12 +102,13 @@ async function tokenExchange(code) {
 
 function agentRow(p, canEdit) {
   const n = esc(p.name);
-  const on = settings.isEnabled(p.name);
+  const on = settings.ownEnabled(p.name);
   const toggle = canEdit
     ? `<form method="post" action="/admin/agents/${n}/${on ? 'disable' : 'enable'}" style="display:inline"><button>${on ? 'Disable' : 'Enable'}</button></form>`
     : '';
+  const status = !on ? '<b>disabled</b>' : settings.allEnabled() ? 'enabled' : '<b>stopped (all agents)</b>';
   const head = `<h3>${esc(p.display)} <span class="muted">${n}, bot @${esc(p.bot)}</span>
- <span id="status-${n}">${on ? 'enabled' : '<b>disabled</b>'}</span> ${toggle}</h3>`;
+ <span id="status-${n}">${status}</span> ${toggle}</h3>`;
   if (!canEdit) {
     return `<div id="agent-${n}">${head}<table>
 <tr><th>Mode</th><td>${esc(p.mode)}</td></tr><tr><th>Takes alerts</th><td>${p.takes_alerts ? 'yes' : 'no'}</td></tr>
@@ -136,8 +137,60 @@ function toolGrid(p, canEdit) {
     : `<details><summary>Tool permissions</summary>${table}</details>`;
 }
 
+// Kill switch changes, shared by the page and the API. Audited, and a disable
+// stops the agent's live sessions at once.
+async function setAgent(name, on, actor, onDisable) {
+  const was = settings.ownEnabled(name);
+  if (was === on) return;
+  settings.setEnabled(name, on);
+  audit.record({ profile: name, kind: 'admin_change', actor,
+    summary: `${name} ${on ? 'enabled' : 'disabled'} by ${actor}`,
+    detail: { setting: `agent.${name}.enabled`, old: was, new: on } });
+  if (!on) await onDisable?.(name, actor);
+}
+
+async function setAll(on, actor, onDisable) {
+  const was = settings.allEnabled();
+  if (was === on) return;
+  settings.setAllEnabled(on);
+  audit.record({ profile: '*', kind: 'admin_change', actor,
+    summary: `all agents ${on ? 'resumed' : 'stopped'} by ${actor}`,
+    detail: { setting: 'agents.all.enabled', old: was, new: on } });
+  if (!on) for (const p of settings.profiles()) await onDisable?.(p.name, actor);
+}
+
+const agentStatus = () => ({
+  all_enabled: settings.allEnabled(),
+  agents: settings.profiles().map((p) => ({ name: p.name, bot: p.bot, enabled: settings.ownEnabled(p.name), active: settings.isEnabled(p.name) })),
+});
+
+// /admin/api: kill switch for curl and scripts, Authorization: Bearer <AGENT_ADMIN_API_TOKEN>.
+function apiRouter(onDisable) {
+  const api = express.Router();
+  api.use((req, res, next) => {
+    const want = Buffer.from(cfg.apiToken);
+    const got = Buffer.from((req.get('Authorization') || '').replace(/^Bearer /, ''));
+    if (!cfg.apiToken) return res.status(503).json({ error: 'api not configured (AGENT_ADMIN_API_TOKEN)' });
+    if (want.length !== got.length || !crypto.timingSafeEqual(want, got)) return res.status(401).json({ error: 'bad token' });
+    req.actor = `api${req.get('X-Actor') ? `:${String(req.get('X-Actor')).slice(0, 40)}` : ''}`;
+    next();
+  });
+  api.get('/agents', (_req, res) => res.json(agentStatus()));
+  api.post('/agents/:name/:action(enable|disable)', async (req, res) => {
+    if (!settings.profile(req.params.name)) return res.status(404).json({ error: 'no such agent' });
+    await setAgent(req.params.name, req.params.action === 'enable', req.actor, onDisable);
+    res.json(agentStatus());
+  });
+  api.post('/all/:action(enable|disable)', async (req, res) => {
+    await setAll(req.params.action === 'enable', req.actor, onDisable);
+    res.json(agentStatus());
+  });
+  return api;
+}
+
 export function adminRouter({ onDisable } = {}) {
   const router = express.Router();
+  router.use('/api', apiRouter(onDisable));
 
   if (!cfg.clientSecret) {
     router.use((_req, res) => res.status(503).type('text/plain').send('admin not configured (AGENT_ADMIN_CLIENT_SECRET)'));
@@ -206,6 +259,8 @@ export function adminRouter({ onDisable } = {}) {
 ${a.role === 'agent-admin' ? '' : '<span class="muted">(read-only)</span>'}
  &middot; <a href="/admin/logout">log out</a></p>
 <section><h2>Agents</h2><p class="muted">Each agent is its own Mattermost bot. Empty allowed users means anyone.</p>
+<p id="all-status">${settings.allEnabled() ? 'All agents running.' : '<b>All agents stopped.</b>'}
+${a.role === 'agent-admin' ? `<form method="post" action="/admin/all/${settings.allEnabled() ? 'disable' : 'enable'}" style="display:inline"><button>${settings.allEnabled() ? 'Stop all agents' : 'Resume all agents'}</button></form>` : ''}</p>
 ${settings.profiles().map((p) => agentRow(p, a.role === 'agent-admin')).join('')}</section>
 <section><h2>Audit</h2><p><a href="/admin/audit">Audit log</a>: triggers, model calls, tool calls, posts and ticket changes.</p></section>`));
   });
@@ -213,15 +268,12 @@ ${settings.profiles().map((p) => agentRow(p, a.role === 'agent-admin')).join('')
   router.post('/agents/:name/:action(enable|disable)', requireAdmin, async (req, res) => {
     const { name, action } = req.params;
     if (!settings.profile(name)) return res.status(404).json({ error: 'no such agent' });
-    const was = settings.isEnabled(name);
-    const now = action === 'enable';
-    if (was !== now) {
-      settings.setEnabled(name, now);
-      audit.record({ profile: name, kind: 'admin_change', actor: req.admin.user,
-        summary: `${name} ${now ? 'enabled' : 'disabled'} by ${req.admin.user}`,
-        detail: { setting: `agent.${name}.enabled`, old: was, new: now } });
-      if (!now) await onDisable?.(name, req.admin.user);
-    }
+    await setAgent(name, action === 'enable', req.admin.user, onDisable);
+    res.redirect(303, '/admin');
+  });
+
+  router.post('/all/:action(enable|disable)', requireAdmin, async (req, res) => {
+    await setAll(req.params.action === 'enable', req.admin.user, onDisable);
     res.redirect(303, '/admin');
   });
 

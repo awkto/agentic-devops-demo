@@ -1,57 +1,24 @@
 // Alert log. Icinga notifies the harness of every state change it fires on;
-// this records them so the agent can answer "has this happened before?" without
-// a monitoring database. The file survives harness restarts, and is trimmed
-// once it grows past MAX_LINES.
-import fs from 'fs';
-import path from 'path';
-import { config } from './config.js';
+// each one is an "alert" row in the audit log, so the agent can answer "has
+// this happened before?" without a monitoring database.
+import * as audit from './audit.js';
 
-const FILE = path.join(path.dirname(config.sessionsDir), 'alerts.jsonl');
-const MAX_LINES = 5000;
-
-export function record(event) {
-  const line = JSON.stringify({
-    at: new Date().toISOString(),
+export function record(event, profile = 'icinga') {
+  const e = {
     host: event.host || null,
     service: event.service || null,
     type: event.type || null,
     state: event.state || null,
     output: (event.output || '').slice(0, 200),
-  });
-  try {
-    fs.appendFileSync(FILE, line + '\n');
-  } catch (err) {
-    console.error('alert log write failed', err.message);
-  }
-  trim();
-}
-
-function trim() {
-  try {
-    const lines = fs.readFileSync(FILE, 'utf8').split('\n').filter(Boolean);
-    if (lines.length <= MAX_LINES) return;
-    fs.writeFileSync(FILE, lines.slice(-MAX_LINES).join('\n') + '\n');
-  } catch {}
-}
-
-function read() {
-  try {
-    return fs
-      .readFileSync(FILE, 'utf8')
-      .split('\n')
-      .filter(Boolean)
-      .map((l) => { try { return JSON.parse(l); } catch { return null; } })
-      .filter(Boolean);
-  } catch {
-    return [];
-  }
+  };
+  audit.record({ profile, kind: 'alert', actor: 'icinga', summary: `${e.type} ${e.host}/${e.service} ${e.state}`, detail: e });
 }
 
 // Alerts in the window, newest first, plus a per-service summary: how often it
 // fired, when it last broke and last recovered, and how long each outage ran.
 export function history({ service, hours = 24, limit = 50 } = {}) {
-  const since = Date.now() - hours * 3600 * 1000;
-  const all = read().filter((e) => Date.parse(e.at) >= since);
+  const all = audit.since(['alert'], Date.now() - hours * 3600 * 1000)
+    .map((r) => ({ at: r.ts, ...r.detail }));
   const match = service
     ? all.filter((e) => `${e.host}/${e.service}`.toLowerCase().includes(service.toLowerCase()))
     : all;

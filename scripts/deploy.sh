@@ -70,6 +70,12 @@ if [ -z "$AGENT_ADMIN_CLIENT_SECRET" ]; then
   AGENT_ADMIN_CLIENT_SECRET=$(openssl rand -hex 24)
   bao kv patch agentic-demo/keycloak agent_admin_client_secret="$AGENT_ADMIN_CLIENT_SECRET" >/dev/null
 fi
+# bearer token for the agent /admin/api kill switch, same pattern
+AGENT_ADMIN_API_TOKEN=$(bao kv get -field=agent_admin_api_token agentic-demo/keycloak 2>/dev/null || true)
+if [ -z "$AGENT_ADMIN_API_TOKEN" ]; then
+  AGENT_ADMIN_API_TOKEN=$(openssl rand -hex 24)
+  bao kv patch agentic-demo/keycloak agent_admin_api_token="$AGENT_ADMIN_API_TOKEN" >/dev/null
+fi
 
 echo "==> render core env"
 CORE_ENV=$(mktemp)
@@ -165,6 +171,7 @@ ICINGA_API_URL=https://icinga-api.$DOMAIN
 ICINGA_API_USER=agent
 ICINGA_API_PASSWORD=$(bg agentic-demo/icinga api_password)
 AGENT_ADMIN_CLIENT_SECRET=$AGENT_ADMIN_CLIENT_SECRET
+AGENT_ADMIN_API_TOKEN=$AGENT_ADMIN_API_TOKEN
 EOF
 ssh $SSH_OPTS "root@$AGENT_IP" "mkdir -p /opt/agent"
 scp $SSH_OPTS "$AGENT_ENV" "root@$AGENT_IP:/opt/agent/.env"

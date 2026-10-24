@@ -6,7 +6,7 @@ import path from 'path';
 import { config } from './config.js';
 
 const FILE = process.env.ADMIN_DB || path.join(path.dirname(config.sessionsDir), 'admin.db');
-export const KINDS = ['trigger', 'model_call', 'tool_call', 'post', 'ticket', 'admin_change', 'refusal'];
+export const KINDS = ['alert', 'trigger', 'model_call', 'tool_call', 'post', 'ticket', 'admin_change', 'refusal'];
 
 const db = new DatabaseSync(FILE);
 db.exec(`CREATE TABLE IF NOT EXISTS audit (
@@ -52,4 +52,21 @@ export function query({ kind, root, from, to, limit = 500 } = {}) {
   if (t) { where.push('ts <= ?'); args.push(new Date(t).toISOString()); }
   const sql = `SELECT * FROM audit ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY id DESC LIMIT ${Math.min(Number(limit) || 500, 50000)}`;
   return db.prepare(sql).all(...args);
+}
+
+// Rows of the given kinds since a time, oldest first. Feeds the agent's own
+// alert history and recent-activity tools. The demo reset sets history.since
+// so earlier takes stay in the audit but out of the agent's view.
+export function since(kinds, fromMs) {
+  const floor = Math.max(fromMs, Date.parse(historySince()) || 0);
+  return db.prepare(`SELECT * FROM audit WHERE kind IN (${kinds.map(() => '?').join(',')}) AND ts >= ? ORDER BY id`)
+    .all(...kinds, new Date(floor).toISOString())
+    .map((r) => ({ ...r, detail: r.detail ? JSON.parse(r.detail) : null }));
+}
+
+function historySince() {
+  try {
+    const row = db.prepare("SELECT value FROM settings WHERE key = 'history.since'").get();
+    return row ? JSON.parse(row.value) : null;
+  } catch { return null; }
 }

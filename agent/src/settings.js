@@ -18,8 +18,12 @@ export function set(key, value) {
     .run(key, JSON.stringify(value));
 }
 
-// Kill switch, keyed by agent profile name. Default on.
-export const isEnabled = (profile = 'ops') => get(`agent.${profile}.enabled`, true) !== false;
+// Kill switch, keyed by agent profile name, plus one global switch over all
+// agents. Default on.
+export const allEnabled = () => get('agents.all.enabled', true) !== false;
+export const setAllEnabled = (on) => set('agents.all.enabled', !!on);
+export const ownEnabled = (profile) => get(`agent.${profile}.enabled`, true) !== false;
+export const isEnabled = (profile = 'ops') => allEnabled() && ownEnabled(profile);
 export const setEnabled = (profile, on) => set(`agent.${profile}.enabled`, !!on);
 
 // Agent profiles: separate bot identity, access and permissions per agent.

@@ -49,6 +49,8 @@ export const config = {
     clientId: process.env.ADMIN_OIDC_CLIENT_ID || 'agent-admin',
     clientSecret: process.env.AGENT_ADMIN_CLIENT_SECRET || '',
     redirectUri: process.env.ADMIN_REDIRECT_URI || `https://agent.${process.env.DOMAIN}/admin/callback`,
+    // Bearer token for /admin/api (kill switch from curl). API off when unset.
+    apiToken: process.env.AGENT_ADMIN_API_TOKEN || '',
   },
   icinga: {
     url: process.env.ICINGA_API_URL || '',

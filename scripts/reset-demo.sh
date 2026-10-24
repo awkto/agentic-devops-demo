@@ -34,7 +34,13 @@ for h in "cust1.$DOMAIN" "db1.$DOMAIN"; do
 done
 
 echo "==> clearing agent memory"
-$SSH "root@agent.$DOMAIN" "systemctl stop agentd; rm -f /opt/agent/sessions/*.json /opt/agent/state.json /opt/agent/alerts.jsonl /opt/agent/activity.jsonl; systemctl start agentd" >/dev/null 2>&1
+# Alert history and recent activity come from the audit log; history.since
+# hides earlier takes from the agent while the audit itself stays complete.
+$SSH "root@agent.$DOMAIN" "systemctl stop agentd; rm -f /opt/agent/sessions/*.json /opt/agent/state.json
+  node -e \"const { DatabaseSync } = require('node:sqlite'); const db = new DatabaseSync('/opt/agent/admin.db');
+    db.exec('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('history.since', JSON.stringify(new Date().toISOString()));\" 2>/dev/null
+  chown agentd: /opt/agent/admin.db 2>/dev/null; systemctl start agentd" >/dev/null 2>&1
 
 echo "==> wiping the Incidents and Ops questions channels"
 MMPW=$(bg agentic-demo/mattermost admin_password)

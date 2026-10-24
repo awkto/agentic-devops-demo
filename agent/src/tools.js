@@ -322,7 +322,8 @@ const offered = (incident) => defs.filter((d) => toolLevel(incident.profile, d.n
 
 export function buildOpsServer(incident) {
   const tools = offered(incident).map((d) =>
-    tool(d.name, d.description, d.shape, async (args) => text(await runTool(incident, d.name, args)))
+    tool(d.name, d.description, d.shape, async (args) =>
+      text(await incident.auditedTool(d.name, args).catch((err) => `tool error: ${err.message}`)))
   );
   return createSdkMcpServer({ name: 'ops', version: '1.0.0', tools });
 }
